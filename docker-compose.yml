@@ -1,0 +1,62 @@
+version: "3.8"
+
+services:
+  mongo:
+    image: mongo:8.2.3
+    container_name: consultslt_mongo
+    ports:
+      - "27017:27017"
+    volumes:
+      - mongo_data:/data/db
+    restart: unless-stopped
+
+  backend:
+    build: ./backend
+    container_name: consultslt_backend
+    env_file:
+      - ./backend/.env
+    environment:
+      MONGO_URI: "mongodb://mongo:27017"
+      MONGO_DB: "consultslt_db"
+      JWT_SECRET: "sua_chave_jwt_segura"
+      JWT_EXPIRE: "480"
+    ports:
+      - "8000:8000"
+    depends_on:
+      - mongo
+    restart: unless-stopped
+
+  frontend:
+    build: ./frontend
+    container_name: consultslt_frontend
+    environment:
+      REACT_APP_BACKEND_URL: "http://localhost:8000/api"
+    ports:
+      - "3000:3000"
+    depends_on:
+      - backend
+    restart: unless-stopped
+
+  kong:
+    image: kong:3.7
+    container_name: kong
+    environment:
+      KONG_DATABASE: "off"
+      KONG_DECLARATIVE_CONFIG: /etc/kong/kong.yml
+      KONG_PROXY_ACCESS_LOG: /dev/stdout
+      KONG_ADMIN_ACCESS_LOG: /dev/stdout
+      KONG_PROXY_ERROR_LOG: /dev/stderr
+      KONG_ADMIN_ERROR_LOG: /dev/stderr
+      KONG_ADMIN_LISTEN: 0.0.0.0:9001
+    ports:
+      - "8001:8000"   # Proxy público (externo → interno)
+      - "9001:9001"   # Admin API
+    volumes:
+      - ./kong.yml:/etc/kong/kong.yml
+    depends_on:
+      - backend
+    restart: unless-stopped
+
+volumes:
+  mongo_data:
+    driver: local
