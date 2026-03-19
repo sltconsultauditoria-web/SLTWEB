@@ -38,7 +38,7 @@
   "scripts": {
     "clean": "rmdir /S /Q build docs node_modules 2>nul & del package-lock.json 2>nul",
     "start": "craco start",
-    "build": "set PUBLIC_URL=/SLTWEB&& craco build",
+    "build": "craco build",
     "postbuild": "xcopy build docs /E /I /Y",
     "test": "craco test",
     "deploy": "git add frontend/docs -f && git commit -m \"deploy frontend\" && git push"
