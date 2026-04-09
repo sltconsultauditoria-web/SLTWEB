@@ -2,11 +2,9 @@
   "name": "frontend",
   "version": "0.1.0",
   "private": true,
+
   "homepage": "https://sltconsultauditoria-web.github.io/SLTWEB",
-  "repository": {
-    "type": "git",
-    "url": "https://github.com/sltconsultauditoria-web/SLTWEB.git"
-  },
+
   "dependencies": {
     "@radix-ui/react-accordion": "^1.1.2",
     "@radix-ui/react-alert-dialog": "^1.0.5",
@@ -35,20 +33,22 @@
     "tailwind-merge": "^2.0.0",
     "tailwindcss-animate": "^1.0.7"
   },
+
   "scripts": {
-    "clean": "rmdir /S /Q build docs node_modules 2>nul & del package-lock.json 2>nul",
     "start": "craco start",
     "build": "craco build",
-    "postbuild": "xcopy build docs /E /I /Y",
-    "test": "craco test",
-    "deploy": "git add frontend/docs -f && git commit -m \"deploy frontend\" && git push"
+    "predeploy": "npm run build",
+    "deploy": "gh-pages -d build",
+    "test": "craco test"
   },
+
   "eslintConfig": {
     "extends": [
       "react-app",
       "react-app/jest"
     ]
   },
+
   "browserslist": {
     "production": [
       ">0.2%",
@@ -61,10 +61,12 @@
       "last 1 safari version"
     ]
   },
+
   "devDependencies": {
     "@craco/craco": "^7.1.0",
     "autoprefixer": "^10.4.27",
     "postcss": "^8.5.8",
-    "tailwindcss": "^3.4.19"
+    "tailwindcss": "^3.4.19",
+    "gh-pages": "^6.1.1"
   }
 }
