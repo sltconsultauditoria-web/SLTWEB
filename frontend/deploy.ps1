@@ -14,4 +14,4 @@ git commit -m "Atualiza build para docs"
 git push origin main
 
 Write-Host "✅ Deploy concluído! Aguarde alguns minutos e acesse:"
-Write-Host "https://sltconsultauditoria-web.github.io/consultSLTweb-/"
+Write-Host "https://sltconsultauditoria-web.github.io/SLTWEB/"
