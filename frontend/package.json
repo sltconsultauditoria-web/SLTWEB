@@ -36,17 +36,15 @@
   "scripts": {
     "start": "craco start",
 
-    "build": "craco build",
+    "build": "cross-env PUBLIC_URL=/SLTWEB craco build",
 
-    "build:gh": "set PUBLIC_URL=/SLTWEB && npm run build",
-
-    "predeploy": "npm run build:gh",
+    "predeploy": "npm run build",
 
     "deploy": "gh-pages -d build -b gh-pages",
 
     "clean": "rimraf build",
 
-    "rebuild": "npm run clean && npm install && npm run build:gh",
+    "rebuild": "npm run clean && npm install && npm run build",
 
     "test": "craco test"
   },
@@ -77,6 +75,7 @@
     "postcss": "^8.5.8",
     "tailwindcss": "^3.4.19",
     "gh-pages": "^6.1.1",
-    "rimraf": "^5.0.5"
+    "rimraf": "^5.0.5",
+    "cross-env": "^7.0.3"
   }
 }

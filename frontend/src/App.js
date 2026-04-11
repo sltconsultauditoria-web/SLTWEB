@@ -1,5 +1,5 @@
 import "@/App.css";
-import { Routes, Route, Navigate } from "react-router-dom";
+import { BrowserRouter, Routes, Route, Navigate } from "react-router-dom";
 import { AuthProvider } from "@/context/AuthContext";
 
 import LoginPage from "@/pages/LoginPage";
@@ -24,7 +24,8 @@ import OCR from "@/pages/OCR";
 function App() {
   return (
     <AuthProvider>
-      <div className="App">
+      <BrowserRouter basename="/SLTWEB">
+        <div className="App">
 
           <Routes>
 
@@ -37,36 +38,25 @@ function App() {
             <Route element={<MainLayout />}>
 
               <Route path="/dashboard" element={<Dashboard />} />
-
               <Route path="/empresas" element={<Empresas />} />
-
               <Route path="/documentos" element={<Documentos />} />
-
               <Route path="/obrigacoes" element={<Obrigacoes />} />
-
               <Route path="/guias" element={<Guias />} />
-
               <Route path="/alertas" element={<Alertas />} />
-
               <Route path="/relatorios" element={<Relatorios />} />
-
               <Route path="/configuracoes" element={<Configuracoes />} />
-
               <Route path="/config-alertas" element={<ConfiguracaoAlertas />} />
-
               <Route path="/robos" element={<Robos />} />
-
               <Route path="/fiscal" element={<Fiscal />} />
-
               <Route path="/auditoria" element={<Auditoria />} />
-
               <Route path="/ocr" element={<OCR />} />
 
             </Route>
 
           </Routes>
 
-      </div>
+        </div>
+      </BrowserRouter>
     </AuthProvider>
   );
 }
