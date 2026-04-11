@@ -36,25 +36,34 @@
   "scripts": {
     "start": "craco start",
 
-    "build": "set PUBLIC_URL=/SLTWEB && craco build",
+    "build": "craco build",
 
-    "predeploy": "npm run build",
+    "build:gh": "set PUBLIC_URL=/SLTWEB && npm run build",
+
+    "predeploy": "npm run build:gh",
 
     "deploy": "gh-pages -d build -b gh-pages",
 
     "clean": "rimraf build",
 
-    "rebuild": "npm run clean && npm install && npm run build",
+    "rebuild": "npm run clean && npm install && npm run build:gh",
 
     "test": "craco test"
   },
 
   "eslintConfig": {
-    "extends": ["react-app", "react-app/jest"]
+    "extends": [
+      "react-app",
+      "react-app/jest"
+    ]
   },
 
   "browserslist": {
-    "production": [">0.2%", "not dead", "not op_mini all"],
+    "production": [
+      ">0.2%",
+      "not dead",
+      "not op_mini all"
+    ],
     "development": [
       "last 1 chrome version",
       "last 1 firefox version",
