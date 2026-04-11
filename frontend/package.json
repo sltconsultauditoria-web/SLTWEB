@@ -22,7 +22,6 @@
     "axios": "^1.6.2",
     "class-variance-authority": "^0.7.0",
     "clsx": "^2.0.0",
-    "cross-env": "^10.1.0",
     "date-fns": "3.6.0",
     "lucide-react": "^0.294.0",
     "react": "^18.2.0",
@@ -37,7 +36,7 @@
   "scripts": {
     "start": "craco start",
 
-    "build": "cross-env PUBLIC_URL=/SLTWEB craco build",
+    "build": "set PUBLIC_URL=/SLTWEB && craco build",
 
     "predeploy": "npm run build",
 
@@ -51,18 +50,11 @@
   },
 
   "eslintConfig": {
-    "extends": [
-      "react-app",
-      "react-app/jest"
-    ]
+    "extends": ["react-app", "react-app/jest"]
   },
 
   "browserslist": {
-    "production": [
-      ">0.2%",
-      "not dead",
-      "not op_mini all"
-    ],
+    "production": [">0.2%", "not dead", "not op_mini all"],
     "development": [
       "last 1 chrome version",
       "last 1 firefox version",
