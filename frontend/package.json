@@ -2,78 +2,72 @@
   "name": "frontend",
   "version": "0.1.0",
   "private": true,
-  "homepage": "https://sltconsultauditoria-web.github.io/SLTWEB",
+  "homepage": "https://sltconsultauditoria-web.github.io/SLTWEB/",
   "dependencies": {
-    "@radix-ui/react-accordion": "1.1.2",
-    "@radix-ui/react-alert-dialog": "1.0.5",
-    "@radix-ui/react-checkbox": "1.3.3",
-    "@radix-ui/react-dialog": "1.0.5",
-    "@radix-ui/react-dropdown-menu": "2.0.6",
-    "@radix-ui/react-label": "2.1.8",
-    "@radix-ui/react-popover": "1.0.7",
-    "@radix-ui/react-select": "2.0.0",
-    "@radix-ui/react-slot": "1.0.2",
-    "@radix-ui/react-switch": "1.2.6",
-    "@radix-ui/react-tabs": "1.1.13",
-    "@radix-ui/react-toast": "1.1.5",
-    "@react-pdf-viewer/core": "3.12.0",
-    "ajv": "6.12.6",
-    "ajv-keywords": "3.5.2",
-    "axios": "1.6.2",
-    "class-variance-authority": "0.7.0",
-    "clsx": "2.0.0",
+    "@radix-ui/react-accordion": "^1.1.2",
+    "@radix-ui/react-alert-dialog": "^1.0.5",
+    "@radix-ui/react-checkbox": "^1.3.3",
+    "@radix-ui/react-dialog": "^1.0.5",
+    "@radix-ui/react-dropdown-menu": "^2.0.6",
+    "@radix-ui/react-label": "^2.1.8",
+    "@radix-ui/react-popover": "^1.0.7",
+    "@radix-ui/react-select": "^2.0.0",
+    "@radix-ui/react-slot": "^1.0.2",
+    "@radix-ui/react-switch": "^1.2.6",
+    "@radix-ui/react-tabs": "^1.1.13",
+    "@radix-ui/react-toast": "^1.1.5",
+    "@react-pdf-viewer/core": "^3.12.0",
+    "ajv": "8.12.0",
+    "ajv-formats": "2.1.1",
+    "axios": "^1.6.2",
+    "class-variance-authority": "^0.7.0",
+    "clsx": "^2.0.0",
     "date-fns": "3.6.0",
-    "lucide-react": "0.294.0",
-    "react": "18.2.0",
+    "lucide-react": "^0.294.0",
+    "pdfjs-dist": "^3.11.174",
+    "react": "^18.2.0",
     "react-day-picker": "8.10.1",
-    "react-dom": "18.2.0",
-    "react-input-mask": "2.0.4",
-    "react-router-dom": "6.30.3",
+    "react-dom": "^18.2.0",
+    "react-input-mask": "^2.0.4",
+    "react-router-dom": "^6.30.3",
     "react-scripts": "5.0.1",
-    "tailwind-merge": "2.0.0",
-    "tailwindcss-animate": "1.0.7"
+    "tailwind-merge": "^2.0.0",
+    "tailwindcss-animate": "^1.0.7"
   },
   "scripts": {
     "start": "craco start",
     "build": "craco build",
     "predeploy": "npm run build",
-    "deploy": "gh-pages -d build -b gh-pages",
-    "clean": "rimraf build node_modules package-lock.json",
-    "rebuild": "npm run clean && npm install --legacy-peer-deps && npm run build",
+    "deploy": "gh-pages -d build",
+    "clean": "rimraf node_modules package-lock.json build",
+    "rebuild": "npm run clean && npm install && npm run build",
     "test": "craco test"
+  },
+  "devDependencies": {
+    "@craco/craco": "^7.1.0",
+    "autoprefixer": "^10.4.17",
+    "cross-env": "^7.0.3",
+    "gh-pages": "^6.1.1",
+    "postcss": "^8.4.31",
+    "rimraf": "^5.0.5",
+    "tailwindcss": "^3.4.3"
+  },
+  "overrides": {
+    "ajv": "8.12.0",
+    "ajv-formats": "2.1.1"
   },
   "eslintConfig": {
     "extends": [
-      "react-app",
-      "react-app/jest"
+      "react-app"
     ]
   },
   "browserslist": {
     "production": [
       ">0.2%",
-      "not dead",
-      "not op_mini all"
+      "not dead"
     ],
     "development": [
-      "last 1 chrome version",
-      "last 1 firefox version",
-      "last 1 safari version"
+      "last 1 chrome version"
     ]
-  },
-  "devDependencies": {
-    "@craco/craco": "7.1.0",
-    "autoprefixer": "10.4.19",
-    "cross-env": "7.0.3",
-    "gh-pages": "6.1.1",
-    "postcss": "8.4.38",
-    "rimraf": "5.0.5",
-    "tailwindcss": "3.4.3"
-  },
-  "overrides": {
-    "ajv": "6.12.6",
-    "ajv-keywords": "3.5.2"
-  },
-  "engines": {
-    "node": ">=18 <=18.x"
   }
 }
