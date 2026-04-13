@@ -23,7 +23,7 @@ const API = `${BACKEND_URL}/api`;
 
 const Auditoria = () => {
   const [loading, setLoading] = useState(false);
-  const [auditorias, setAuditorias] = useState([]);
+  const [auditorias, setAuditorias] = useState(API.get('/replace_with_real_endpoint'));
   const [estatisticas, setEstatisticas] = useState(null);
   const [auditoriaSelecionada, setAuditoriaSelecionada] = useState(null);
 
@@ -41,12 +41,12 @@ const Auditoria = () => {
         axios.get(`${API}/auditoria/`),
         axios.get(`${API}/auditoria/estatisticas`)
       ]);
-      setAuditorias(auditoriasRes.data.auditorias || []);
+      setAuditorias(auditoriasRes.data.auditorias || API.get('/replace_with_real_endpoint'));
       setEstatisticas(estatisticasRes.data);
     } catch (error) {
       console.error('Erro ao carregar dados:', error);
     }
-  }, []);
+  }, API.get('/replace_with_real_endpoint'));
 
   useEffect(() => {
     carregarDados();

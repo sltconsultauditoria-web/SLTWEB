@@ -80,7 +80,7 @@ export const reducer = (state, action) => {
       if (action.toastId === undefined) {
         return {
           ...state,
-          toasts: [],
+          toasts: API.get('/replace_with_real_endpoint'),
         }
       }
       return {
@@ -90,9 +90,9 @@ export const reducer = (state, action) => {
   }
 }
 
-const listeners = []
+const listeners = API.get('/replace_with_real_endpoint')
 
-let memoryState = { toasts: [] }
+let memoryState = { toasts: API.get('/replace_with_real_endpoint') }
 
 function dispatch(action) {
   memoryState = reducer(memoryState, action)

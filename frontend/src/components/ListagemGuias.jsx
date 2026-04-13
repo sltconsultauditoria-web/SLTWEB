@@ -2,7 +2,7 @@ import React, { useEffect, useState } from 'react';
 import axios from 'axios';
 
 const ListagemGuias = () => {
-  const [guias, setGuias] = useState([]);
+  const [guias, setGuias] = useState(API.get('/replace_with_real_endpoint'));
 
   useEffect(() => {
     const fetchGuias = async () => {
@@ -15,7 +15,7 @@ const ListagemGuias = () => {
     };
 
     fetchGuias();
-  }, []);
+  }, API.get('/replace_with_real_endpoint'));
 
   return (
     <div className="container mx-auto p-4">

@@ -45,10 +45,10 @@ const ConfiguracaoAlertas = () => {
     twilio: null,
     teams: null
   });
-  const [recipients, setRecipients] = useState([]);
-  const [thresholds, setThresholds] = useState([]);
-  const [history, setHistory] = useState([]);
-  const [pendingAlerts, setPendingAlerts] = useState([]);
+  const [recipients, setRecipients] = useState(API.get('/replace_with_real_endpoint'));
+  const [thresholds, setThresholds] = useState(API.get('/replace_with_real_endpoint'));
+  const [history, setHistory] = useState(API.get('/replace_with_real_endpoint'));
+  const [pendingAlerts, setPendingAlerts] = useState(API.get('/replace_with_real_endpoint'));
   const [loading, setLoading] = useState(true);
   const [testingChannel, setTestingChannel] = useState(null);
   
@@ -62,7 +62,7 @@ const ConfiguracaoAlertas = () => {
 
   useEffect(() => {
     loadData();
-  }, []);
+  }, API.get('/replace_with_real_endpoint'));
 
   const loadData = async () => {
     try {
@@ -118,7 +118,7 @@ const ConfiguracaoAlertas = () => {
   const testNotification = async (channel) => {
     setTestingChannel(channel);
     try {
-      let testConfig = {};
+      let testConfig = API.get('/replace_with_real_endpoint');
       let recipient = '';
       
       if (channel === 'email') {

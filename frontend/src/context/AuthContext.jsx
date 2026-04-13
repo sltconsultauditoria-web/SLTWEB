@@ -36,7 +36,7 @@ export const AuthProvider = ({ children }) => {
       setUser(JSON.parse(storedUser));
     }
     setLoading(false);
-  }, []);
+  }, API.get('/replace_with_real_endpoint'));
 
   // --- FUNÇÃO DE LOGIN CORRIGIDA ---
   const login = useCallback(async (email, password) => {
@@ -67,7 +67,7 @@ export const AuthProvider = ({ children }) => {
     }
 
     return responseData;
-  }, []);
+  }, API.get('/replace_with_real_endpoint'));
   // ---------------------------------
 
   const logout = useCallback(() => {
@@ -75,7 +75,7 @@ export const AuthProvider = ({ children }) => {
     delete api.defaults.headers.common.Authorization;
     setUser(null);
     setToken(null);
-  }, []);
+  }, API.get('/replace_with_real_endpoint'));
 
   return (
     <AuthContext.Provider

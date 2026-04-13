@@ -42,8 +42,8 @@ import {
 const API_URL = process.env.REACT_APP_API_URL || 'http://localhost:8000';
 
 export function RecibosSharePoint() {
-  const [recibos, setRecibos] = useState([]);
-  const [empresas, setEmpresas] = useState([]);
+  const [recibos, setRecibos] = useState(API.get('/replace_with_real_endpoint'));
+  const [empresas, setEmpresas] = useState(API.get('/replace_with_real_endpoint'));
   const [selectedEmpresa, setSelectedEmpresa] = useState('');
   const [loading, setLoading] = useState(false);
   const [downloading, setDownloading] = useState(null);
@@ -55,7 +55,7 @@ export function RecibosSharePoint() {
   // Carregar empresas ao montar componente
   useEffect(() => {
     carregarEmpresas();
-  }, []);
+  }, API.get('/replace_with_real_endpoint'));
 
   // Carregar recibos quando empresa é selecionada
   useEffect(() => {
@@ -71,7 +71,7 @@ export function RecibosSharePoint() {
         params: { access_token: accessToken },
       });
 
-      setEmpresas(response.data.empresas || []);
+      setEmpresas(response.data.empresas || API.get('/replace_with_real_endpoint'));
       setError(null);
     } catch (err) {
       setError('Erro ao carregar empresas: ' + (err.response?.data?.detail || err.message));
@@ -92,7 +92,7 @@ export function RecibosSharePoint() {
         },
       });
 
-      setRecibos(response.data.recibos || []);
+      setRecibos(response.data.recibos || API.get('/replace_with_real_endpoint'));
       setError(null);
     } catch (err) {
       setError('Erro ao carregar recibos: ' + (err.response?.data?.detail || err.message));

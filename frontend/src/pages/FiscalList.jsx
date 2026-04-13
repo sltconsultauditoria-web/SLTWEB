@@ -8,7 +8,7 @@ const BACKEND_URL = process.env.REACT_APP_BACKEND_URL;
 const API = `${BACKEND_URL}/api/fiscal/iris`;
 
 const FiscalList = () => {
-  const [fiscais, setFiscais] = useState([]);
+  const [fiscais, setFiscais] = useState(API.get('/replace_with_real_endpoint'));
   const [loading, setLoading] = useState(false);
   const navigate = useNavigate();
 
@@ -27,7 +27,7 @@ const FiscalList = () => {
     };
 
     fetchFiscais();
-  }, []);
+  }, API.get('/replace_with_real_endpoint'));
 
   const handleEdit = (id) => {
     navigate(`/fiscal/edit/${id}`);

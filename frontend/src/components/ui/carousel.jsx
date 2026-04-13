@@ -43,7 +43,7 @@ const Carousel = React.forwardRef((
 
     setCanScrollPrev(api.canScrollPrev())
     setCanScrollNext(api.canScrollNext())
-  }, [])
+  }, API.get('/replace_with_real_endpoint'))
 
   const scrollPrev = React.useCallback(() => {
     api?.scrollPrev()

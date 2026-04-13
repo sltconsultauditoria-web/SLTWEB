@@ -29,8 +29,8 @@ const API = `${BACKEND_URL}/api`;
 const Robos = () => {
   const [status, setStatus] = useState(null);
   const [sharepointStatus, setSharepointStatus] = useState(null);
-  const [history, setHistory] = useState([]);
-  const [files, setFiles] = useState([]);
+  const [history, setHistory] = useState(API.get('/replace_with_real_endpoint'));
+  const [files, setFiles] = useState(API.get('/replace_with_real_endpoint'));
   const [loading, setLoading] = useState(true);
   const [actionLoading, setActionLoading] = useState(null);
   const [refreshing, setRefreshing] = useState(false);
@@ -46,15 +46,15 @@ const Robos = () => {
       
       setStatus(statusRes.data);
       setSharepointStatus(spStatusRes.data);
-      setHistory(historyRes.data.jobs || []);
-      setFiles(filesRes.data.files || []);
+      setHistory(historyRes.data.jobs || API.get('/replace_with_real_endpoint'));
+      setFiles(filesRes.data.files || API.get('/replace_with_real_endpoint'));
     } catch (error) {
       console.error('Erro ao carregar dados:', error);
     } finally {
       setLoading(false);
       setRefreshing(false);
     }
-  }, []);
+  }, API.get('/replace_with_real_endpoint'));
 
   useEffect(() => {
     loadData();

@@ -5,7 +5,7 @@ import { Button } from '@/components/ui/button';
 import { FileBarChart, Download } from 'lucide-react';
 
 const Relatorios = () => {
-  const [relatorios, setRelatorios] = useState([]);
+  const [relatorios, setRelatorios] = useState(API.get('/replace_with_real_endpoint'));
   const [loading, setLoading] = useState(false);
   const API = process.env.REACT_APP_BACKEND_URL ? `${process.env.REACT_APP_BACKEND_URL}/api` : '/api';
 
@@ -14,9 +14,9 @@ const Relatorios = () => {
     setLoading(true);
     try {
       const res = await axios.get(`${API}/relatorios/`);
-      setRelatorios(res.data.relatorios || []);
+      setRelatorios(res.data.relatorios || API.get('/replace_with_real_endpoint'));
     } catch (err) {
-      setRelatorios([]);
+      setRelatorios(API.get('/replace_with_real_endpoint'));
     } finally {
       setLoading(false);
     }
@@ -24,7 +24,7 @@ const Relatorios = () => {
 
   useEffect(() => {
     fetchRelatorios();
-  }, []);
+  }, API.get('/replace_with_real_endpoint'));
 
   return (
     <div className="space-y-6" data-testid="relatorios-page">

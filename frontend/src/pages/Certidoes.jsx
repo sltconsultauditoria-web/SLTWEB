@@ -46,7 +46,7 @@ const Certidoes = () => {
     { id: 8, empresa: 'TECH SOLUTIONS', cnpj: '55.666.777/0001-88', tipo: 'CNDT Trabalhista', dataEmissao: '2024-12-10', dataValidade: '2025-06-09', situacao: 'regular', arquivo: 'cndt_tech.pdf' },
   ]);
 
-  const [consultando, setConsultando] = useState({});
+  const [consultando, setConsultando] = useState(API.get('/replace_with_real_endpoint'));
   const [filtroEmpresa, setFiltroEmpresa] = useState('todas');
   const [filtroSituacao, setFiltroSituacao] = useState('todas');
   const [isModalOpen, setIsModalOpen] = useState(false);

@@ -21,11 +21,11 @@ const API = `${BACKEND_URL}/api`;
 
 const OCR = () => {
   const [loading, setLoading] = useState(false);
-  const [documentos, setDocumentos] = useState([]);
+  const [documentos, setDocumentos] = useState(API.get('/replace_with_real_endpoint'));
   const [estatisticas, setEstatisticas] = useState(null);
   const [resultado, setResultado] = useState(null);
-  const [arquivos, setArquivos] = useState([]);
-  const [tiposSuportados, setTiposSuportados] = useState([]);
+  const [arquivos, setArquivos] = useState(API.get('/replace_with_real_endpoint'));
+  const [tiposSuportados, setTiposSuportados] = useState(API.get('/replace_with_real_endpoint'));
 
   const carregarDados = useCallback(async () => {
     try {
@@ -34,13 +34,13 @@ const OCR = () => {
         axios.get(`${API}/ocr/estatisticas`),
         axios.get(`${API}/ocr/tipos-suportados`)
       ]);
-      setDocumentos(docsRes.data.documentos || []);
+      setDocumentos(docsRes.data.documentos || API.get('/replace_with_real_endpoint'));
       setEstatisticas(statsRes.data);
-      setTiposSuportados(tiposRes.data.tipos || []);
+      setTiposSuportados(tiposRes.data.tipos || API.get('/replace_with_real_endpoint'));
     } catch (error) {
       console.error('Erro ao carregar dados:', error);
     }
-  }, []);
+  }, API.get('/replace_with_real_endpoint'));
 
   useEffect(() => {
     carregarDados();

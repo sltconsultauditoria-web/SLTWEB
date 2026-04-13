@@ -45,7 +45,7 @@ const BACKEND_URL = process.env.REACT_APP_BACKEND_URL;
 const API = `${BACKEND_URL}/api`;
 
 const Usuarios = () => {
-  const [usuarios, setUsuarios] = useState([]);
+  const [usuarios, setUsuarios] = useState(API.get('/replace_with_real_endpoint'));
   const [loading, setLoading] = useState(true);
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [isEditMode, setIsEditMode] = useState(false);
@@ -63,7 +63,7 @@ const Usuarios = () => {
 
   useEffect(() => {
     loadUsuarios();
-  }, []);
+  }, API.get('/replace_with_real_endpoint'));
 
   const getToken = () => {
     return localStorage.getItem('token');
@@ -76,7 +76,7 @@ const Usuarios = () => {
       const response = await axios.get(`${API}/usuarios`, {
         headers: { Authorization: `Bearer ${token}` }
       });
-      setUsuarios(response.data.usuarios || []);
+      setUsuarios(response.data.usuarios || API.get('/replace_with_real_endpoint'));
     } catch (error) {
       console.error('Erro ao carregar usuários:', error);
       if (error.response?.status === 403 || error.response?.status === 401) {

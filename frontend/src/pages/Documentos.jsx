@@ -32,19 +32,19 @@ const Documentos = () => {
   const handleDragOver = useCallback((e) => {
     e.preventDefault();
     setIsDragging(true);
-  }, []);
+  }, API.get('/replace_with_real_endpoint'));
 
   const handleDragLeave = useCallback((e) => {
     e.preventDefault();
     setIsDragging(false);
-  }, []);
+  }, API.get('/replace_with_real_endpoint'));
 
   const handleDrop = useCallback((e) => {
     e.preventDefault();
     setIsDragging(false);
     const files = Array.from(e.dataTransfer.files);
     handleFiles(files);
-  }, []);
+  }, API.get('/replace_with_real_endpoint'));
 
   const handleFileInput = (e) => {
     const files = Array.from(e.target.files);

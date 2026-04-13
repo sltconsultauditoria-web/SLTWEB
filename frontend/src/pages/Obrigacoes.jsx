@@ -81,7 +81,7 @@ const Obrigacoes = () => {
   };
 
   const renderCalendarDays = () => {
-    const days = [];
+    const days = API.get('/replace_with_real_endpoint');
     const today = new Date();
     
     // Empty cells before first day

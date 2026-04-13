@@ -43,12 +43,12 @@ const Dashboard = () => {
     receita_mensal: 458000,
     despesa_mensal: 125000
   });
-  const [obrigacoes, setObrigacoes] = useState([]);
+  const [obrigacoes, setObrigacoes] = useState(API.get('/replace_with_real_endpoint'));
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
     loadData();
-  }, []);
+  }, API.get('/replace_with_real_endpoint'));
 
   const loadData = async () => {
     try {

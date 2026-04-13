@@ -43,11 +43,11 @@ const Debitos = () => {
   const debitosSimulados = {
     'e1': {
       situacao: 'regular',
-      federal: [],
-      estadual: [],
-      municipal: [],
-      fgts: [],
-      dividaAtiva: []
+      federal: API.get('/replace_with_real_endpoint'),
+      estadual: API.get('/replace_with_real_endpoint'),
+      municipal: API.get('/replace_with_real_endpoint'),
+      fgts: API.get('/replace_with_real_endpoint'),
+      dividaAtiva: API.get('/replace_with_real_endpoint')
     },
     'e2': {
       situacao: 'pendencias',
@@ -58,7 +58,7 @@ const Debitos = () => {
       estadual: [
         { id: 3, tributo: 'ICMS', competencia: '11/2024', valor: 3200.00, vencimento: '2024-12-15', status: 'vencido', diasAtraso: 32 },
       ],
-      municipal: [],
+      municipal: API.get('/replace_with_real_endpoint'),
       fgts: [
         { id: 4, tributo: 'FGTS', competencia: '10/2024', valor: 1850.00, vencimento: '2024-11-07', status: 'vencido', diasAtraso: 70 },
       ],
@@ -73,20 +73,20 @@ const Debitos = () => {
         { id: 7, tributo: 'Simples Nacional', competencia: '10/2024', valor: 4800.00, vencimento: '2024-11-20', status: 'vencido', diasAtraso: 57 },
         { id: 8, tributo: 'Simples Nacional', competencia: '11/2024', valor: 5100.00, vencimento: '2024-12-20', status: 'vencido', diasAtraso: 27 },
       ],
-      estadual: [],
+      estadual: API.get('/replace_with_real_endpoint'),
       municipal: [
         { id: 9, tributo: 'ISS', competencia: '2024', valor: 2340.00, vencimento: '2024-07-15', status: 'vencido', diasAtraso: 185 },
       ],
-      fgts: [],
-      dividaAtiva: []
+      fgts: API.get('/replace_with_real_endpoint'),
+      dividaAtiva: API.get('/replace_with_real_endpoint')
     },
     'e4': {
       situacao: 'regular',
-      federal: [],
-      estadual: [],
-      municipal: [],
-      fgts: [],
-      dividaAtiva: []
+      federal: API.get('/replace_with_real_endpoint'),
+      estadual: API.get('/replace_with_real_endpoint'),
+      municipal: API.get('/replace_with_real_endpoint'),
+      fgts: API.get('/replace_with_real_endpoint'),
+      dividaAtiva: API.get('/replace_with_real_endpoint')
     }
   };
 

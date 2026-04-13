@@ -36,7 +36,7 @@ import axios from 'axios';
 import InputMask from 'react-input-mask';
 
 const Empresas = () => {
-  const [empresas, setEmpresas] = useState([]);
+  const [empresas, setEmpresas] = useState(API.get('/replace_with_real_endpoint'));
   const [searchTerm, setSearchTerm] = useState('');
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [editingEmpresa, setEditingEmpresa] = useState(null);
@@ -49,7 +49,7 @@ const Empresas = () => {
 
   useEffect(() => {
     fetchEmpresas();
-  }, []);
+  }, API.get('/replace_with_real_endpoint'));
 
   const fetchEmpresas = async () => {
     try {
