@@ -2,7 +2,7 @@ import { Navigate, Outlet } from 'react-router-dom';
 import { useAuth } from '@/context/AuthContext';
 import Sidebar from './Sidebar';
 import { Bell } from 'lucide-react';
-import { Button } from '@/components/ui/button';
+import Button from '@/components/ui/button';
 
 const MainLayout = () => {
   const { isAuthenticated, loading, user } = useAuth();

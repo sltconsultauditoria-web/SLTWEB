@@ -1,14 +1,17 @@
-export function validateCNPJ(cnpj) {
-  cnpj = cnpj.replace(/[\.\-\/]/g, '');
+import { useEffect, useState } from "react";
+import API from "../api.js";
 
-  if (cnpj.length !== 14 || /^(\d)\1+$/.test(cnpj)) {
-    return false;
-  }
+export default function validators() {
+  const [data, setData] = useState([]);
 
-  let t = cnpj.length - 2, d = cnpj.substring(t), d1 = parseInt(d.charAt(0)), d2 = parseInt(d.charAt(1));
-  let calc = x => cnpj.substring(0, x).split('').reduce((s, e, i) => s + e * ((x + 1) - i), 0) % 11;
-  let v1 = calc(t), v2 = calc(t + 1);
-  v1 = v1 < 2 ? 0 : 11 - v1; v2 = v2 < 2 ? 0 : 11 - v2;
+  useEffect(() => {
+    API.get("/validators").then(res => setData(res.data));
+  }, []);
 
-  return v1 === d1 && v2 === d2;
+  return (
+    <div>
+      <h1>validators</h1>
+      <pre>{JSON.stringify(data, null, 2)}</pre>
+    </div>
+  );
 }
