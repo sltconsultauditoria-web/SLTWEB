@@ -5,11 +5,11 @@
   "homepage": "https://sltconsultauditoria-web.github.io/SLTWEB/",
   "dependencies": {
     "@react-pdf-viewer/core": "^3.12.0",
-    "pdfjs-dist": "^3.11.174",
     "axios": "^1.6.2",
     "clsx": "^2.0.0",
     "date-fns": "3.6.0",
     "lucide-react": "^0.294.0",
+    "pdfjs-dist": "^3.11.174",
     "react": "^18.2.0",
     "react-dom": "^18.2.0",
     "react-router-dom": "^6.30.3",
@@ -30,6 +30,7 @@
   },
   "devDependencies": {
     "@craco/craco": "^7.1.0",
+    "babel-loader": "^8.2.5",
     "gh-pages": "^6.1.1"
   },
   "browserslist": {
