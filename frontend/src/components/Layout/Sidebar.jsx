@@ -1,17 +1,27 @@
 import { useEffect, useState } from "react";
-import API from "../api.js";
+import API from "../../api.js"; // ✅ caminho corrigido
 
 export default function Sidebar() {
   const [data, setData] = useState([]);
 
   useEffect(() => {
-    API.get("/sidebar").then(res => setData(res.data));
+    API.get("/sidebar")
+      .then((res) => setData(res.data))
+      .catch((err) => console.error("Erro ao carregar sidebar:", err));
   }, []);
 
   return (
-    <div>
-      <h1>Sidebar</h1>
-      <pre>{JSON.stringify(data, null, 2)}</pre>
-    </div>
+    <aside style={{ padding: "1rem", backgroundColor: "#f9f9f9" }}>
+      <h2>Sidebar</h2>
+      {data.length > 0 ? (
+        <ul>
+          {data.map((item, index) => (
+            <li key={index}>{item.name || JSON.stringify(item)}</li>
+          ))}
+        </ul>
+      ) : (
+        <p>Nenhum dado encontrado.</p>
+      )}
+    </aside>
   );
 }
