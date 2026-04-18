@@ -1,5 +1,4 @@
 import { useEffect, useState } from "react";
-import API from "../api.js";
 
 export default function hover-card() {
   const [data, setData] = useState([]);

@@ -1,5 +1,4 @@
 import { useEffect, useState } from "react";
-import API from "../api.js";
 
 export default function navigation-menu() {
   const [data, setData] = useState([]);

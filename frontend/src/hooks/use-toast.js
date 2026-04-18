@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import API from "../api.js";
+import API from "@/api";
 
 export default function use-toast() {
   const [data, setData] = useState([]);

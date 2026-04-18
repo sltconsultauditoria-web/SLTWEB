@@ -2,7 +2,7 @@ import { useState } from "react";
 import api from "../services/api";
 
 export default function LoginPage() {
-  const [email, setEmail] = useState(""); // ✅ corrigido
+  const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
@@ -14,27 +14,23 @@ export default function LoginPage() {
 
     try {
       const res = await api.post("/login", {
-        email,          // ✅ backend espera email
+        email,
         password
       });
 
-      // ✅ padrão do seu backend
       const data = res.data?.data;
 
       if (!data?.token) {
         throw new Error("Token não recebido");
       }
 
-      // 💾 salvar sessão
       localStorage.setItem("token", data.token);
       localStorage.setItem("user", JSON.stringify(data.user));
 
-      // 🔄 redirecionar (ajuste rota se necessário)
       window.location.href = "/dashboard";
 
     } catch (err) {
       console.error(err);
-
       setError(
         err.response?.data?.detail ||
         "Falha no login. Verifique suas credenciais."
@@ -45,17 +41,22 @@ export default function LoginPage() {
   };
 
   return (
-    <div style={{ maxWidth: 400, margin: "auto", marginTop: 100 }}>
-      <h1>Login</h1>
+    <div className="flex items-center justify-center min-h-screen bg-gray-100">
+      <form
+        onSubmit={handleLogin}
+        className="bg-white p-8 rounded-xl shadow-md w-full max-w-md"
+      >
+        <h1 className="text-2xl font-bold mb-6 text-center">
+          Login
+        </h1>
 
-      <form onSubmit={handleLogin}>
         <input
           type="email"
           placeholder="Email"
           value={email}
           onChange={(e) => setEmail(e.target.value)}
+          className="w-full mb-4 p-2 border rounded"
           required
-          style={{ display: "block", width: "100%", marginBottom: 10 }}
         />
 
         <input
@@ -63,24 +64,24 @@ export default function LoginPage() {
           placeholder="Senha"
           value={password}
           onChange={(e) => setPassword(e.target.value)}
+          className="w-full mb-4 p-2 border rounded"
           required
-          style={{ display: "block", width: "100%", marginBottom: 10 }}
         />
 
         <button
           type="submit"
+          className="w-full bg-blue-600 text-white p-2 rounded"
           disabled={loading}
-          style={{ width: "100%" }}
         >
           {loading ? "Entrando..." : "Entrar"}
         </button>
-      </form>
 
-      {error && (
-        <p style={{ color: "red", marginTop: 10 }}>
-          {error}
-        </p>
-      )}
+        {error && (
+          <p className="text-red-500 mt-4 text-center">
+            {error}
+          </p>
+        )}
+      </form>
     </div>
   );
 }

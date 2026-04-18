@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import API from "../../api.js"; // ✅ caminho corrigido
+import API from "@/api"; // ✅ caminho corrigido
 
 export default function Sidebar() {
   const [data, setData] = useState([]);

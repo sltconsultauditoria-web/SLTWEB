@@ -1,5 +1,4 @@
 import { useEffect, useState } from "react";
-import API from "../api.js";
 
 export default function breadcrumb() {
   const [data, setData] = useState([]);

@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import API from "../api.js";
+import API from "@/api";
 
 export default function Robos() {
   const [data, setData] = useState([]);
