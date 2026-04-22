@@ -1,13 +1,13 @@
 {
   "files": {
     "main.css": "/SLTWEB/static/css/main.4e4a6100.css",
-    "main.js": "/SLTWEB/static/js/main.b90d6c68.js",
+    "main.js": "/SLTWEB/static/js/main.df376e2b.js",
     "index.html": "/SLTWEB/index.html",
     "main.4e4a6100.css.map": "/SLTWEB/static/css/main.4e4a6100.css.map",
-    "main.b90d6c68.js.map": "/SLTWEB/static/js/main.b90d6c68.js.map"
+    "main.df376e2b.js.map": "/SLTWEB/static/js/main.df376e2b.js.map"
   },
   "entrypoints": [
     "static/css/main.4e4a6100.css",
-    "static/js/main.b90d6c68.js"
+    "static/js/main.df376e2b.js"
   ]
 }
