@@ -1,0 +1,17 @@
+import { useEffect, useState } from "react";
+import API from "@/api";
+
+export default function Robos() {
+  const [data, setData] = useState([]);
+
+  useEffect(() => {
+    API.get("/robos").then(res => setData(res.data));
+  }, []);
+
+  return (
+    <div>
+      <h1>Robos</h1>
+      <pre>{JSON.stringify(data, null, 2)}</pre>
+    </div>
+  );
+}
