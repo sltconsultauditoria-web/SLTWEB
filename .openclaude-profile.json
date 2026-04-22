@@ -1,9 +1,0 @@
-{
-  "profile": "openai",
-  "env": {
-    "OPENAI_BASE_URL": "https://api.openai.com/v1",
-    "OPENAI_MODEL": "gpt-4o",
-    "OPENAI_API_KEY": "\"Analise a estrutura do meu projeto e crie um arquivo CLAUDE.md na raiz. Inclua as instruções de build, como rodar os testes e as regras de estilo de código que devo seguir.\""
-  },
-  "createdAt": "2026-04-09T12:16:48.833Z"
-}

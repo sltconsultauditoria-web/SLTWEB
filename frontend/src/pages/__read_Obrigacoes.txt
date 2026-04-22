@@ -1,1 +1,0 @@
-// placeholder para leitura do arquivo Obrigacoes.jsx
