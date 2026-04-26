@@ -1,11 +1,15 @@
-from fastapi import APIRouter, HTTPException
-from pydantic import BaseModel
 from datetime import datetime, timedelta
-import jwt
-import os
+from typing import Optional
+
+from fastapi import APIRouter, HTTPException, status, Depends
+from pydantic import BaseModel
+from jose import jwt
+from passlib.context import CryptContext
+
+from backend.core.database import get_database
 
 # ==========================================================
-# ROUTER
+# CONFIG
 # ==========================================================
 
 router = APIRouter(
@@ -13,29 +17,41 @@ router = APIRouter(
     tags=["Authentication"]
 )
 
-# ==========================================================
-# CONFIG
-# ==========================================================
+SECRET_KEY = "sltdctfweb-secret-key-2024"
+ALGORITHM = "HS256"
+ACCESS_TOKEN_EXPIRE_HOURS = 8
 
-JWT_SECRET = os.getenv(
-    "JWT_SECRET",
-    "sltdctfweb-secret-key-2024"
-)
+pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
 
-JWT_ALGORITHM = "HS256"
 
 # ==========================================================
 # DEFAULT ADMINS
 # ==========================================================
 
-DEFAULT_ADMINS = {
-    "admin@empresa.com": "admin123",
-    "william.lucas@sltconsult.com.br": "Slt@2024",
-    "admin@consultslt.com.br": "Consult@2026",
-}
+DEFAULT_ADMINS = [
+    {
+        "email": "admin@empresa.com",
+        "password": "admin123",
+        "name": "Administrador",
+        "role": "admin"
+    },
+    {
+        "email": "william.lucas@sltconsult.com.br",
+        "password": "Slt@2024",
+        "name": "William Lucas",
+        "role": "admin"
+    },
+    {
+        "email": "admin@consultslt.com.br",
+        "password": "Consult@2026",
+        "name": "Admin Consult SLT",
+        "role": "admin"
+    }
+]
+
 
 # ==========================================================
-# MODELS
+# SCHEMAS
 # ==========================================================
 
 class LoginRequest(BaseModel):
@@ -43,65 +59,116 @@ class LoginRequest(BaseModel):
     password: str
 
 
+class LoginResponse(BaseModel):
+    access_token: str
+    token_type: str
+    user: dict
+
+
 # ==========================================================
-# TOKEN
+# HELPERS
 # ==========================================================
 
-def generate_token(email: str):
-    payload = {
-        "sub": email,
-        "exp": datetime.utcnow() + timedelta(hours=8)
-    }
+def create_access_token(data: dict, expires_delta: Optional[timedelta] = None):
+    to_encode = data.copy()
 
-    return jwt.encode(
-        payload,
-        JWT_SECRET,
-        algorithm=JWT_ALGORITHM
+    expire = datetime.utcnow() + (
+        expires_delta if expires_delta else timedelta(hours=8)
     )
 
+    to_encode.update({"exp": expire})
+
+    return jwt.encode(to_encode, SECRET_KEY, algorithm=ALGORITHM)
+
+
+async def authenticate_user(email: str, password: str, db=None):
+
+    # 1 - verifica admins padrão
+    for admin in DEFAULT_ADMINS:
+        if (
+            admin["email"].lower() == email.lower()
+            and admin["password"] == password
+        ):
+            return admin
+
+    # 2 - verifica MongoDB (opcional)
+    if db:
+        user = await db.users.find_one({"email": email})
+
+        if user:
+            db_password = user.get("password")
+
+            if db_password == password:
+                return {
+                    "email": user["email"],
+                    "name": user.get("name", user["email"]),
+                    "role": user.get("role", "user")
+                }
+
+            try:
+                if pwd_context.verify(password, db_password):
+                    return {
+                        "email": user["email"],
+                        "name": user.get("name", user["email"]),
+                        "role": user.get("role", "user")
+                    }
+            except Exception:
+                pass
+
+    return None
+
 
 # ==========================================================
-# LOGIN
+# ROUTES
 # ==========================================================
 
-@router.post("/login")
-async def login(data: LoginRequest):
+@router.post(
+    "/login",
+    response_model=LoginResponse,
+    summary="Login do sistema"
+)
+async def login(
+    payload: LoginRequest,
+    db=Depends(get_database)
+):
 
-    email = data.email.lower().strip()
-    password = data.password.strip()
+    user = await authenticate_user(
+        payload.email,
+        payload.password,
+        db
+    )
 
-    if email not in DEFAULT_ADMINS:
+    if not user:
         raise HTTPException(
-            status_code=401,
-            detail="Usuário não autorizado"
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Usuário ou senha inválidos"
         )
 
-    if DEFAULT_ADMINS[email] != password:
-        raise HTTPException(
-            status_code=401,
-            detail="Senha inválida"
-        )
-
-    token = generate_token(email)
+    token = create_access_token(
+        {
+            "sub": user["email"],
+            "role": user["role"],
+            "name": user["name"]
+        },
+        timedelta(hours=ACCESS_TOKEN_EXPIRE_HOURS)
+    )
 
     return {
-        "success": True,
-        "token": token,
+        "access_token": token,
         "token_type": "bearer",
         "user": {
-            "email": email,
-            "role": "admin"
+            "email": user["email"],
+            "name": user["name"],
+            "role": user["role"]
         }
     }
 
 
-# ==========================================================
-# HEALTH
-# ==========================================================
+@router.get("/me")
+async def me():
+    return {"message": "Use o token JWT no frontend"}
+
 
 @router.get("/health")
 async def auth_health():
-    return {
-        "status": "online",
-        "module": "auth"
-    }
+    return {"status": "ok", "service": "auth"}
