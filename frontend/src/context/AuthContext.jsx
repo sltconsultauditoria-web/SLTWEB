@@ -2,7 +2,7 @@ import { createContext, useContext, useEffect, useState, useCallback } from "rea
 import axios from "axios";
 
 // ==============================
-// Axios config
+// Axios instance
 // ==============================
 const api = axios.create({
   baseURL: "http://localhost:8000/api",
@@ -10,7 +10,7 @@ const api = axios.create({
   headers: {
     "Content-Type": "application/json",
   },
-} );
+});
 
 // ==============================
 // Context
@@ -25,54 +25,74 @@ export const AuthProvider = ({ children }) => {
   const [token, setToken] = useState(null);
   const [loading, setLoading] = useState(true);
 
+  // ==============================
+  // Load session
+  // ==============================
   useEffect(() => {
     const storedToken = localStorage.getItem("token");
     const storedUser = localStorage.getItem("user");
+
     if (storedToken) {
       setToken(storedToken);
       api.defaults.headers.common.Authorization = `Bearer ${storedToken}`;
     }
+
     if (storedUser) {
-      setUser(JSON.parse(storedUser));
+      try {
+        setUser(JSON.parse(storedUser));
+      } catch {
+        localStorage.removeItem("user");
+      }
     }
+
     setLoading(false);
   }, []);
 
-  // --- FUNÇÃO DE LOGIN CORRIGIDA ---
+  // ==============================
+  // LOGIN
+  // ==============================
   const login = useCallback(async (email, password) => {
-    const response = await api.post("/auth/login", { email, password });
-    
-    // 'responseData' é o objeto completo retornado pela API: { success, message, data: { token, user } }
-    const responseData = response.data;
+    try {
+      const response = await api.post("/auth/login", {
+        email,
+        password,
+      });
 
-    // 1. Acessar o token corretamente
-    const authToken = responseData.data?.token;
-    
-    // 2. Acessar o usuário corretamente
-    const userData = responseData.data?.user;
+      const data = response.data;
 
-    if (!authToken) {
-      throw new Error("Token não foi retornado pela API");
+      // suporte a diferentes formatos de API
+      const authToken = data?.data?.token || data?.token;
+      const userData = data?.data?.user || data?.user;
+
+      if (!authToken) {
+        throw new Error("Token não retornado pela API");
+      }
+
+      localStorage.setItem("token", authToken);
+      api.defaults.headers.common.Authorization = `Bearer ${authToken}`;
+      setToken(authToken);
+
+      if (userData) {
+        localStorage.setItem("user", JSON.stringify(userData));
+        setUser(userData);
+      }
+
+      return data;
+    } catch (error) {
+      console.error("LOGIN ERROR:", error?.response?.data || error.message);
+      throw error;
     }
-
-    // Armazena o token no localStorage e no cabeçalho do axios
-    localStorage.setItem("token", authToken);
-    api.defaults.headers.common.Authorization = `Bearer ${authToken}`;
-    setToken(authToken);
-
-    // Se os dados do usuário existirem, armazena no localStorage e no estado
-    if (userData) {
-      localStorage.setItem("user", JSON.stringify(userData));
-      setUser(userData);
-    }
-
-    return responseData;
   }, []);
-  // ---------------------------------
 
+  // ==============================
+  // LOGOUT
+  // ==============================
   const logout = useCallback(() => {
-    localStorage.clear();
+    localStorage.removeItem("token");
+    localStorage.removeItem("user");
+
     delete api.defaults.headers.common.Authorization;
+
     setUser(null);
     setToken(null);
   }, []);
@@ -98,8 +118,10 @@ export const AuthProvider = ({ children }) => {
 // ==============================
 export const useAuth = () => {
   const context = useContext(AuthContext);
+
   if (!context) {
     throw new Error("useAuth must be used within AuthProvider");
   }
+
   return context;
 };
