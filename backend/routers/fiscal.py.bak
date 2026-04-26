@@ -1,0 +1,61 @@
+from fastapi import APIRouter, HTTPException, Depends
+from backend.core.database import get_db
+from backend.schemas.fiscal_schema import FiscalCreate, FiscalUpdate, FiscalSchema
+from typing import List
+from bson import ObjectId
+from motor.motor_asyncio import AsyncIOMotorDatabase
+from datetime import datetime
+
+router = APIRouter(prefix="/fiscal", tags=["IRIS"])
+
+@router.get("/iris", response_model=List[FiscalSchema])
+async def list_items(db: AsyncIOMotorDatabase = Depends(get_db)):
+    items = await db["fiscal_iris"].find({"deletedAt": None}).to_list(100)
+    for i in items:
+        i["id"] = str(i["_id"])
+        del i["_id"]
+    return items
+
+@router.post("/iris", response_model=FiscalSchema)
+async def create_item(item: FiscalCreate, db: AsyncIOMotorDatabase = Depends(get_db)):
+    item_dict = item.dict()
+    item_dict.update({"createdAt": datetime.utcnow(), "updatedAt": datetime.utcnow(), "deletedAt": None})
+    result = await db["fiscal_iris"].insert_one(item_dict)
+    item_dict["id"] = str(result.inserted_id)
+    return item_dict
+
+@router.get("/iris/{item_id}", response_model=FiscalSchema)
+async def get_item(item_id: str, db: AsyncIOMotorDatabase = Depends(get_db)):
+    item = await db["fiscal_iris"].find_one({"_id": ObjectId(item_id), "deletedAt": None})
+    if not item:
+        raise HTTPException(status_code=404, detail="Item não encontrado")
+    item["id"] = str(item["_id"])
+    del item["_id"]
+    return item
+
+@router.put("/iris/{item_id}", response_model=FiscalSchema)
+async def update_item(item_id: str, item: FiscalUpdate, db: AsyncIOMotorDatabase = Depends(get_db)):
+    await db["fiscal_iris"].update_one(
+        {"_id": ObjectId(item_id), "deletedAt": None},
+        {"$set": item.dict(exclude_unset=True) | {"updatedAt": datetime.utcnow()}}
+    )
+    updated = await db["fiscal_iris"].find_one({"_id": ObjectId(item_id), "deletedAt": None})
+    updated["id"] = str(updated["_id"])
+    del updated["_id"]
+    return updated
+
+@router.delete("/iris/{item_id}", response_model=dict)
+async def delete_item(item_id: str, db: AsyncIOMotorDatabase = Depends(get_db)):
+    await db["fiscal_iris"].update_one(
+        {"_id": ObjectId(item_id)},
+        {"$set": {"deletedAt": datetime.utcnow()}}
+    )
+    return {"deleted": True}
+
+@router.post("/calcular/das", response_model=dict)
+async def calcular_das():
+    return {"status": "ok", "message": "DAS calculado"}
+
+@router.post("/calcular/fator-r", response_model=dict)
+async def calcular_fator_r():
+    return {"status": "ok", "message": "Fator R calculado"}
