@@ -43,6 +43,7 @@ jobs:
         env:
           PUBLIC_URL: /SLTWEB
           REACT_APP_API_URL: ${{ secrets.REACT_APP_API_URL }}
+          GENERATE_SOURCEMAP: "false"
       - uses: actions/upload-pages-artifact@v3
         with:
           path: frontend/build
