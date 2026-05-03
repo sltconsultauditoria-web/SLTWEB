@@ -132,6 +132,17 @@ class FakeCollection:
                 return FakeDeleteResult(1)
         return FakeDeleteResult(0)
 
+    def delete_many(self, query):
+        kept = []
+        deleted = 0
+        for item in self.items:
+            if _matches(item, query or {}):
+                deleted += 1
+                continue
+            kept.append(item)
+        self.items = kept
+        return FakeDeleteResult(deleted)
+
 
 class FakeAdmin:
     def command(self, _command):
@@ -201,6 +212,10 @@ def make_db():
         "pipeline_events": FakeCollection([]),
         "fiscal_pipeline_logs": FakeCollection([]),
         "job_logs": FakeCollection([]),
+        "alerts_config": FakeCollection([{"id": "default", "email_enabled": True, "whatsapp_enabled": False, "teams_enabled": False}]),
+        "alerts_recipients": FakeCollection([]),
+        "alerts_thresholds": FakeCollection([]),
+        "alerts_history": FakeCollection([]),
         "decision_actions": FakeCollection([]),
         "subscription_plans": FakeCollection([]),
         "tenants": FakeCollection([]),

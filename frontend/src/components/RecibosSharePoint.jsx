@@ -5,6 +5,7 @@
 
 import React, { useState, useEffect } from 'react';
 import axios from 'axios';
+import { resolveApiBaseUrl } from '@/lib/apiClient';
 import {
   Card,
   CardContent,
@@ -39,7 +40,7 @@ import {
   HardDrive,
 } from 'lucide-react';
 
-const API_URL = process.env.REACT_APP_API_URL || '';
+const API_URL = resolveApiBaseUrl();
 
 export function RecibosSharePoint() {
   const [recibos, setRecibos] = useState([]);

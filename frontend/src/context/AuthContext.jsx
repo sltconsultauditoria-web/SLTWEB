@@ -1,5 +1,5 @@
 import { createContext, useContext, useEffect, useState, useCallback } from "react";
-import axios from "axios";
+import api from "@/lib/apiClient";
 
 // ======================================================
 // BACKEND URL PROFISSIONAL
@@ -19,50 +19,8 @@ const getBackendURL = () => {
 
 const BACKEND_URL = getBackendURL();
 
-// ======================================================
-// AXIOS INSTANCE
-// ======================================================
-const api = axios.create({
-  baseURL: BACKEND_URL,
-  timeout: 15000,
-  withCredentials: false,
-  headers: {
-    "Content-Type": "application/json",
-  },
-});
-
-// ======================================================
-// REQUEST INTERCEPTOR
-// ======================================================
-api.interceptors.request.use(
-  (config) => {
-    const token = localStorage.getItem("token");
-
-    if (token) {
-      config.headers.Authorization = `Bearer ${token}`;
-    }
-
-    return config;
-  },
-  (error) => Promise.reject(error)
-);
-
-// ======================================================
-// RESPONSE INTERCEPTOR
-// ======================================================
 api.interceptors.response.use(
-  (response) => {
-    const payload = response.data;
-    if (
-      payload &&
-      typeof payload === "object" &&
-      Object.prototype.hasOwnProperty.call(payload, "success") &&
-      Object.prototype.hasOwnProperty.call(payload, "data")
-    ) {
-      response.data = payload.data;
-    }
-    return response;
-  },
+  (response) => response,
   (error) => {
     if (error?.response?.status === 401) {
       localStorage.removeItem("token");

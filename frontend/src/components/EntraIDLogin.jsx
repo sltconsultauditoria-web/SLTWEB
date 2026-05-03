@@ -6,12 +6,13 @@
 import React, { useState, useEffect } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import axios from 'axios';
+import { resolveApiBaseUrl } from '@/lib/apiClient';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import { Loader2, AlertCircle, CheckCircle } from 'lucide-react';
 
-const API_URL = process.env.REACT_APP_API_URL || '';
+const API_URL = resolveApiBaseUrl();
 
 export function EntraIDLogin() {
   const navigate = useNavigate();

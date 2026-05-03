@@ -14,6 +14,7 @@ import {
   File
 } from 'lucide-react';
 import { api } from '@/context/AuthContext';
+import { resolveApiBaseUrl } from '@/lib/apiClient';
 import { Viewer } from '@react-pdf-viewer/core';
 import '@react-pdf-viewer/core/lib/styles/index.css';
 
@@ -326,7 +327,8 @@ const Modal = ({ documento, onClose }) => {
 
   useEffect(() => {
     if (documento && documento.file_path) {
-      setPdfUrl(`${BACKEND_URL}/api/documentos/${documento.id}/download`);
+      const baseUrl = resolveApiBaseUrl();
+      setPdfUrl(`${baseUrl}/api/documentos/${documento.id}/download`);
     }
   }, [documento]);
 

@@ -498,6 +498,140 @@ def list_alerts(limit: int = 100) -> list[dict[str, Any]]:
         return []
 
 
+def default_alerts_config() -> dict[str, Any]:
+    return {
+        "email_enabled": True,
+        "whatsapp_enabled": False,
+        "teams_enabled": False,
+        "smtp": {"host": "", "port": 587, "username": "", "from_email": ""},
+        "twilio": {"account_sid": "", "from_number": ""},
+        "teams": {"webhook_url": "", "channel_name": ""},
+        "updated_at": now(),
+    }
+
+
+def default_alert_thresholds() -> list[dict[str, Any]]:
+    return [
+        {"level": "critico", "days": 2, "enabled": True, "label": "Crítico (0-2 dias)"},
+        {"level": "alto", "days": 5, "enabled": True, "label": "Alto (3-5 dias)"},
+        {"level": "normal", "days": 10, "enabled": True, "label": "Normal (6-10 dias)"},
+        {"level": "baixo", "days": 15, "enabled": True, "label": "Baixo (11-15 dias)"},
+    ]
+
+
+def load_alerts_config() -> dict[str, Any]:
+    stored = db["alerts_config"].find_one({"id": "default"}) or {}
+    config = default_alerts_config()
+    config.update({key: value for key, value in serialize(stored).items() if key != "_id"})
+    return config
+
+
+def save_alerts_config(section: str, data: dict[str, Any]) -> dict[str, Any]:
+    config = load_alerts_config()
+    config[section] = data
+    config["updated_at"] = now()
+    db["alerts_config"].update_one({"id": "default"}, {"$set": config}, upsert=True)
+    return config
+
+
+def load_alert_thresholds() -> list[dict[str, Any]]:
+    items = list(db["alerts_thresholds"].find({}).sort("level", 1))
+    if not items:
+        return default_alert_thresholds()
+    return [serialize(item) for item in items]
+
+
+def save_alert_thresholds(items: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    normalized: list[dict[str, Any]] = []
+    db["alerts_thresholds"].delete_many({})
+    for item in items:
+        threshold = {
+            "level": str(item.get("level") or item.get("codigo") or "").strip().lower(),
+            "days": int(item.get("days") or item.get("dias") or 0),
+            "enabled": bool(item.get("enabled", True)),
+            "label": str(item.get("label") or item.get("nome") or "").strip() or str(item.get("level") or "nivel"),
+            "updated_at": now(),
+        }
+        db["alerts_thresholds"].insert_one(threshold)
+        normalized.append(threshold)
+    return normalized or default_alert_thresholds()
+
+
+def list_alert_recipients() -> list[dict[str, Any]]:
+    items = list(db["alerts_recipients"].find({}).sort("created_at", -1))
+    return [serialize(item) for item in items]
+
+
+def save_alert_recipient(payload: dict[str, Any]) -> dict[str, Any]:
+    document = request_data(payload)
+    document = {
+        "id": str(document.get("id") or ObjectId()),
+        "name": str(document.get("name") or "").strip(),
+        "email": str(document.get("email") or "").strip(),
+        "whatsapp": str(document.get("whatsapp") or "").strip(),
+        "notify_email": bool(document.get("notify_email", True)),
+        "notify_whatsapp": bool(document.get("notify_whatsapp", False)),
+        "notify_teams": bool(document.get("notify_teams", True)),
+        "threshold_levels": document.get("threshold_levels") if isinstance(document.get("threshold_levels"), list) else ["critico", "alto"],
+        "created_at": document.get("created_at") or now(),
+        "updated_at": now(),
+    }
+    db["alerts_recipients"].update_one({"id": document["id"]}, {"$set": document}, upsert=True)
+    return serialize(document)
+
+
+def list_alert_history(limit: int = 100) -> list[dict[str, Any]]:
+    history = list(db["alerts_history"].find({}).sort("created_at", -1).limit(limit))
+    if history:
+        return [serialize(item) for item in history]
+    return list_alerts(limit=limit)
+
+
+def build_alert_preview(limit: int = 20) -> list[dict[str, Any]]:
+    today = date.today()
+    obligations = []
+    for item in db["obrigacoes"].find({}):
+        obligation = serialize(item)
+        vencimento = parse_date_like(obligation.get("vencimento") or obligation.get("data_vencimento"))
+        if not vencimento:
+            continue
+        remaining = (vencimento - today).days
+        if remaining < 0 or remaining > 15:
+            continue
+        if remaining <= 2:
+            level = "critico"
+        elif remaining <= 5:
+            level = "alto"
+        elif remaining <= 10:
+            level = "normal"
+        else:
+            level = "baixo"
+        obligations.append(
+            {
+                "threshold_level": level,
+                "days_until": remaining,
+                "obrigacao": {
+                    "id": obligation.get("id"),
+                    "tipo": obligation.get("tipo") or obligation.get("nome") or obligation.get("descricao") or "Obrigação",
+                    "empresa": obligation.get("empresa") or obligation.get("empresa_id") or obligation.get("cnpj") or "",
+                    "vencimento": vencimento.isoformat(),
+                },
+            }
+        )
+    return obligations[:limit]
+
+
+def register_alert_history(action: str, payload: dict[str, Any]) -> dict[str, Any]:
+    document = {
+        "id": str(ObjectId()),
+        "action": action,
+        "created_at": now(),
+        **serialize(payload),
+    }
+    db["alerts_history"].insert_one(document)
+    return serialize(document)
+
+
 def parse_date_like(value: Any) -> date | None:
     if isinstance(value, datetime):
         return value.date()
@@ -2510,6 +2644,183 @@ def resolver_evento(item_id: str):
 def marcar_alerta_lido(item_id: str):
     data = update_item("alertas", item_id, {"lido": True})
     return envelope(data, **data)
+
+
+@app.get("/api/alerts/config")
+def get_alerts_config():
+    return envelope(load_alerts_config(), config=load_alerts_config())
+
+
+@app.get("/api/alerts/recipients")
+def get_alerts_recipients():
+    data = list_alert_recipients()
+    return envelope(data, recipients=data)
+
+
+@app.get("/api/alerts/thresholds")
+def get_alerts_thresholds():
+    data = load_alert_thresholds()
+    return envelope(data, thresholds=data)
+
+
+@app.get("/api/alerts/history")
+def get_alerts_history():
+    data = list_alert_history()
+    return envelope(data, history=data)
+
+
+@app.get("/api/alerts/preview")
+def get_alerts_preview():
+    data = build_alert_preview()
+    return envelope(data, preview=data, pendingAlerts=data)
+
+
+@app.post("/api/alerts/config/smtp")
+def save_alerts_smtp(payload: dict):
+    data = request_data(payload)
+    config = save_alerts_config(
+        "smtp",
+        {
+            "host": str(data.get("host") or "").strip(),
+            "port": int(data.get("port") or 587),
+            "username": str(data.get("username") or "").strip(),
+            "password": "***" if data.get("password") else "",
+            "from_email": str(data.get("from_email") or "").strip(),
+        },
+    )
+    config["email_enabled"] = True
+    register_alert_history("config_smtp", {"has_credentials": bool(data.get("host") and data.get("username"))})
+    return envelope({"success": True, "config": config}, **{"success": True, "config": config})
+
+
+@app.post("/api/alerts/config/twilio")
+def save_alerts_twilio(payload: dict):
+    data = request_data(payload)
+    config = save_alerts_config(
+        "twilio",
+        {
+            "account_sid": str(data.get("account_sid") or "").strip(),
+            "auth_token": "***" if data.get("auth_token") else "",
+            "from_number": str(data.get("from_number") or "").strip(),
+        },
+    )
+    config["whatsapp_enabled"] = True
+    register_alert_history("config_twilio", {"has_credentials": bool(data.get("account_sid") and data.get("auth_token"))})
+    return envelope({"success": True, "config": config}, **{"success": True, "config": config})
+
+
+@app.post("/api/alerts/config/teams")
+def save_alerts_teams(payload: dict):
+    data = request_data(payload)
+    config = save_alerts_config(
+        "teams",
+        {
+            "webhook_url": str(data.get("webhook_url") or "").strip(),
+            "channel_name": str(data.get("channel_name") or "").strip(),
+        },
+    )
+    config["teams_enabled"] = True
+    register_alert_history("config_teams", {"has_webhook": bool(data.get("webhook_url"))})
+    return envelope({"success": True, "config": config}, **{"success": True, "config": config})
+
+
+@app.post("/api/alerts/test")
+def test_alert_channel(payload: dict):
+    data = request_data(payload)
+    channel = str(data.get("channel") or "").strip().lower()
+    recipient = str(data.get("recipient") or "").strip()
+    config = data.get("config") if isinstance(data.get("config"), dict) else {}
+    if not channel or not recipient:
+        raise HTTPException(status_code=400, detail="Canal e destinatario sao obrigatorios")
+
+    register_alert_history("test_channel", {"channel": channel, "recipient": recipient})
+    return envelope(
+        {"success": True, "channel": channel, "recipient": recipient, "simulated": True, "config_present": bool(config)},
+        success=True,
+        channel=channel,
+        recipient=recipient,
+        simulated=True,
+    )
+
+
+@app.post("/api/alerts/recipients")
+def create_alert_recipient(payload: dict):
+    data = save_alert_recipient(payload)
+    register_alert_history("recipient_created", data)
+    return envelope(data, **data)
+
+
+@app.put("/api/alerts/recipients/{item_id}")
+def update_alert_recipient(item_id: str, payload: dict):
+    data = request_data(payload)
+    document = save_alert_recipient({"data": {"id": item_id, **data}})
+    register_alert_history("recipient_updated", document)
+    return envelope(document, **document)
+
+
+@app.delete("/api/alerts/recipients/{item_id}")
+def delete_alert_recipient(item_id: str):
+    result = db["alerts_recipients"].delete_one(object_query(item_id))
+    if result.deleted_count == 0:
+        raise HTTPException(status_code=404, detail="Registro nao encontrado")
+    register_alert_history("recipient_deleted", {"id": item_id})
+    return envelope({"id": item_id, "deleted": True}, id=item_id, deleted=True)
+
+
+@app.put("/api/alerts/thresholds")
+def replace_alert_thresholds(payload: Any):
+    items = payload if isinstance(payload, list) else request_data(payload).get("thresholds") or request_data(payload).get("data") or []
+    if not isinstance(items, list):
+        raise HTTPException(status_code=400, detail="Lista de thresholds obrigatoria")
+    data = save_alert_thresholds(items)
+    register_alert_history("thresholds_updated", {"count": len(data)})
+    return envelope(data, thresholds=data)
+
+
+@app.post("/api/alerts/check-and-notify")
+def check_and_notify_alerts():
+    preview = build_alert_preview()
+    notified = 0
+    created_events: list[dict[str, Any]] = []
+    for item in preview:
+        level = item.get("threshold_level")
+        if level not in {"critico", "alto"}:
+            continue
+        obligation = item.get("obrigacao") or {}
+        empresa_id = obligation.get("empresa_id") or obligation.get("empresa")
+        event = store_pipeline_event(
+            {
+                "data": {
+                    "origem": "fiscal",
+                    "tipo": "vencimento",
+                    "empresa_id": empresa_id,
+                    "severidade": level,
+                    "status": "novo",
+                    "titulo": f"Obrigacao vencendo: {obligation.get('tipo')}",
+                    "descricao": f"Vencimento em {item.get('days_until')} dia(s)",
+                    "referencia": obligation.get("id") or obligation.get("tipo") or obligation.get("vencimento"),
+                    "payload": item,
+                }
+            },
+            upsert=True,
+        )
+        alert = resolve_alert_by_event(
+            str(event.get("id")),
+            level,
+            f"Obrigacao vencendo: {obligation.get('tipo')}",
+            f"Vencimento em {item.get('days_until')} dia(s)",
+        )
+        if alert:
+            notified += 1
+            created_events.append({"event": event, "alert": alert})
+
+    register_alert_history("check_and_notify", {"notified": notified, "preview_count": len(preview)})
+    return envelope(
+        {"success": True, "notified": notified, "preview": preview, "events": created_events},
+        success=True,
+        notified=notified,
+        preview=preview,
+    )
 
 
 @app.get("/api/obrigacoes")
