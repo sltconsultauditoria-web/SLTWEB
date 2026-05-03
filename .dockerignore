@@ -1,0 +1,17 @@
+frontend/node_modules
+frontend/build
+backend/venv
+backend/__pycache__
+tests/__pycache__
+_BACKUPS
+_HOTFIX_BACKUP
+_PATCH_BACKUP
+_UPGRADE_BACKUPS
+_VERSION_BACKUP
+backup_precheck
+backup_pre_mocks_endpoints_masks_20260502_200553
+backup_pre_tailadmin_ocr_20260502_194751
+pytest-cache-files-*
+.git
+.env
+frontend/.env

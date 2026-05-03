@@ -185,6 +185,7 @@ def make_db():
                 {"_id": ObjectId(), "status": "erro", "nome_arquivo": "arquivo-erro.pdf"},
             ]
         ),
+        "ocr_process_logs": FakeCollection([]),
         "robots": FakeCollection([{"_id": ObjectId(), "status": "idle"}]),
         "robot_files": FakeCollection([{"_id": ObjectId(), "nome": "file-a.pdf"}]),
         "robot_history": FakeCollection([{"_id": ObjectId(), "acao": "run"}]),
@@ -195,6 +196,10 @@ def make_db():
         "debitos": FakeCollection([{"_id": ObjectId(), "cnpj": "12345678000100", "status": "aberto"}]),
         "pipeline_events": FakeCollection([]),
         "fiscal_pipeline_logs": FakeCollection([]),
+        "decision_actions": FakeCollection([]),
+        "subscription_plans": FakeCollection([]),
+        "tenants": FakeCollection([]),
+        "roles_permissions": FakeCollection([]),
         "usuarios": FakeCollection([]),
         "fiscal_data": FakeCollection([]),
         }
@@ -232,6 +237,14 @@ def client(monkeypatch):
         ("GET", "/api/tipos_relatorios", {}),
         ("GET", "/api/certidoes", {"params": {"cnpj": "12345678000100"}}),
         ("GET", "/api/debitos", {"params": {"cnpj": "12345678000100"}}),
+        ("GET", "/api/dashboard/analytics", {}),
+        ("GET", "/api/integracoes/ecac/status", {"params": {"cnpj": "12345678000100"}}),
+        ("GET", "/api/integracoes/ecac/debitos", {"params": {"cnpj": "12345678000100"}}),
+        ("GET", "/api/integracoes/pgdas/consultar", {"params": {"cnpj": "12345678000100"}}),
+        ("GET", "/api/integracoes/sefaz/nfe", {"params": {"cnpj": "12345678000100"}}),
+        ("GET", "/api/subscriptions/plans", {}),
+        ("GET", "/api/tenants", {}),
+        ("GET", "/api/rbac/roles-permissions", {}),
     ],
 )
 def test_api_endpoints_return_200(client, method, path, kwargs):
@@ -455,6 +468,101 @@ def test_export_relatorios_pdf_and_excel(client):
     assert excel_response.status_code == 200
     assert "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" in excel_response.headers["content-type"]
     assert excel_response.content[:2] == b"PK"
+
+
+def test_ocr_process_and_ai_analyze(client):
+    response = client.post(
+        "/api/ocr/process",
+        json={
+            "nome_arquivo": "nf_12345678000100_2026-05-10.pdf",
+            "texto": "CNPJ 12.345.678/0001-00 Valor R$ 1.234,56 Vencimento 10/05/2026 Nota Fiscal",
+            "empresa_id": str(app_module.db["empresas"].items[0]["_id"]),
+        },
+        follow_redirects=False,
+    )
+    assert response.status_code == 200
+    payload = response.json()["data"]
+    assert payload["status"] == "done"
+    assert payload["dados_extraidos"]["cnpj"] == "12345678000100"
+    assert payload["dados_extraidos"]["valor"] == 1234.56
+    assert str(payload["dados_extraidos"]["vencimento"]).startswith("2026-05-10")
+    assert app_module.db["ocr_process_logs"].count_documents({}) >= 1
+
+    ai_response = client.post(
+        "/api/ocr/ai-analyze",
+        json={"texto": "CNPJ 12.345.678/0001-00 Valor R$ 1.234,56 Vencimento 10/05/2026 Nota Fiscal"},
+        follow_redirects=False,
+    )
+    assert ai_response.status_code == 200
+    ai_payload = ai_response.json()["data"]
+    assert ai_payload["classificacao"] in {"nfe", "nfse", "pgdas", "certidao", "boleto", "guia", "documento"}
+
+
+def test_integrations_and_decisions_flow(client):
+    ecac_status = client.get("/api/integracoes/ecac/status", params={"cnpj": "12345678000100"}, follow_redirects=False)
+    assert ecac_status.status_code == 200
+    assert ecac_status.json()["data"]["cnpj"] == "12345678000100"
+
+    ecac_debitos = client.get("/api/integracoes/ecac/debitos", params={"cnpj": "12345678000100"}, follow_redirects=False)
+    assert ecac_debitos.status_code == 200
+    assert isinstance(ecac_debitos.json()["data"]["debitos"], list)
+
+    pgdas = client.get("/api/integracoes/pgdas/consultar", params={"cnpj": "12345678000100"}, follow_redirects=False)
+    assert pgdas.status_code == 200
+    assert pgdas.json()["data"]["cnpj"] == "12345678000100"
+
+    sefaz = client.get("/api/integracoes/sefaz/nfe", params={"cnpj": "12345678000100"}, follow_redirects=False)
+    assert sefaz.status_code == 200
+    assert isinstance(sefaz.json()["data"]["documentos"], list)
+
+    event_response = client.post(
+        "/api/events",
+        json={
+            "origem": "fiscal",
+            "tipo": "vencimento",
+            "empresa_id": "12345678000100",
+            "severidade": "critica",
+            "titulo": "Certidao vencendo",
+            "descricao": "Evento para motor de decisao",
+            "payload": {"empresa_id": "12345678000100"},
+            "referencia": "decision-001",
+        },
+        follow_redirects=False,
+    )
+    event = event_response.json()["data"]
+
+    decision_response = client.post("/api/decisions", json={"event": event}, follow_redirects=False)
+    assert decision_response.status_code == 200
+    decision = decision_response.json()["data"]
+    assert decision["acao_sugerida"] == "regularizar"
+
+    execute_response = client.post(f"/api/decisions/{decision['id']}/execute", follow_redirects=False)
+    assert execute_response.status_code == 200
+    executed = execute_response.json()["data"]
+    assert executed["status"] == "executado"
+
+
+def test_dashboard_analytics_has_risk_and_trends(client):
+    response = client.get("/api/dashboard/analytics", follow_redirects=False)
+    assert response.status_code == 200
+    payload = response.json()["data"]
+    assert "tendencia_mensal" in payload
+    assert "ranking_risco" in payload
+    assert "saude_fiscal" in payload
+
+
+def test_monetization_and_rbac_endpoints(client):
+    plans = client.get("/api/subscriptions/plans", follow_redirects=False)
+    assert plans.status_code == 200
+    assert len(plans.json()["data"]) >= 3
+
+    tenants = client.get("/api/tenants", follow_redirects=False)
+    assert tenants.status_code == 200
+    assert len(tenants.json()["data"]) >= 1
+
+    roles = client.get("/api/rbac/roles-permissions", follow_redirects=False)
+    assert roles.status_code == 200
+    assert len(roles.json()["data"]) >= 3
 
 
 def test_realtime_notifications_flow(client):

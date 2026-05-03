@@ -1,15 +1,7 @@
-"""Serviços de negócio"""
+"""Servicos de negocio.
 
-from .documento_service import DocumentoService
-from .obrigacao_service import ObrigacaoService
-from .fiscal_calculation_service import FiscalCalculationService
-from .auditoria_service import AuditoriaService
-from .ocr_service import OCRService
+O pacote evita imports automaticos para nao acoplar a inicializacao do
+backend a modulos legados com dependencias opcionais.
+"""
 
-__all__ = [
-    'DocumentoService',
-    'ObrigacaoService',
-    'FiscalCalculationService',
-    'AuditoriaService',
-    'OCRService'
-]
+__all__: list[str] = []

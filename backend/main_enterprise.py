@@ -2,6 +2,7 @@ import asyncio
 from datetime import date, datetime, timedelta
 from io import BytesIO
 import os
+import re
 import threading
 import time
 from typing import Any
@@ -14,7 +15,11 @@ from fastapi.middleware.cors import CORSMiddleware
 from pymongo import MongoClient
 
 from backend.engines.fiscal_engine import FiscalEngine
+from backend.integrations.government.ecac_service import GovernmentECACService
+from backend.integrations.government.pgdas_service import PGDAService
+from backend.integrations.government.sefaz_service import SEFAZService
 from backend.core.security import create_access_token, decode_access_token
+from backend.services.decision_engine import DecisionEngine
 
 app = FastAPI(title="CONSULTSLT ENTERPRISE")
 
@@ -41,6 +46,10 @@ OCR_TIPOS_SUPORTADOS = [
 OCR_CONTENT_TYPES = {content_type for tipo in OCR_TIPOS_SUPORTADOS for content_type in tipo["content_types"]}
 OCR_EXTENSOES = {extensao for tipo in OCR_TIPOS_SUPORTADOS for extensao in tipo["extensoes"]}
 fiscal_engine = FiscalEngine()
+ecac_service = GovernmentECACService()
+pgdas_service = PGDAService()
+sefaz_service = SEFAZService()
+decision_engine = DecisionEngine()
 PIPELINE_RUNTIME_STATE: dict[str, Any] = {
     "running": False,
     "last_run_at": None,
@@ -49,6 +58,218 @@ PIPELINE_RUNTIME_STATE: dict[str, Any] = {
     "last_summary": {},
 }
 PIPELINE_SCHEDULER_STARTED = False
+
+MODULE_PERMISSION_MATRIX: dict[str, set[str]] = {
+    "admin": {"*"},
+    "operador": {"ocr", "fiscal", "empresas", "relatorios", "dashboard", "alerts", "decisions", "integracoes", "tenants"},
+    "viewer": {"dashboard", "empresas", "ocr", "relatorios", "alerts", "timeline"},
+}
+
+DEFAULT_SUBSCRIPTION_PLANS: list[dict[str, Any]] = [
+    {
+        "id": "basic",
+        "nome": "basic",
+        "empresas_limit": 5,
+        "ocr_limit": 250,
+        "eventos_limit": 2500,
+        "relatorios_limit": 50,
+        "preco_mensal": 0,
+        "descricao": "Plano inicial com limites reduzidos",
+    },
+    {
+        "id": "pro",
+        "nome": "pro",
+        "empresas_limit": 50,
+        "ocr_limit": 5000,
+        "eventos_limit": 25000,
+        "relatorios_limit": 500,
+        "preco_mensal": 0,
+        "descricao": "Plano para operação recorrente",
+    },
+    {
+        "id": "enterprise",
+        "nome": "enterprise",
+        "empresas_limit": 500,
+        "ocr_limit": 50000,
+        "eventos_limit": 250000,
+        "relatorios_limit": 5000,
+        "preco_mensal": 0,
+        "descricao": "Plano enterprise com maior capacidade",
+    },
+]
+
+DEFAULT_TENANTS: list[dict[str, Any]] = [
+    {"id": "default", "nome": "ConsultSLT", "status": "ativo", "plano": "enterprise"},
+]
+
+DEFAULT_ROLES_PERMISSIONS: list[dict[str, Any]] = [
+    {"role": "admin", "modulos": ["*"]},
+    {"role": "operador", "modulos": ["ocr", "fiscal", "empresas", "relatorios", "dashboard", "alerts", "decisions", "integracoes", "timeline"]},
+    {"role": "viewer", "modulos": ["dashboard", "empresas", "ocr", "relatorios", "alerts", "timeline"]},
+]
+
+
+def default_subscription_plans() -> list[dict[str, Any]]:
+    return [serialize(plan) for plan in DEFAULT_SUBSCRIPTION_PLANS]
+
+
+def default_tenants() -> list[dict[str, Any]]:
+    return [serialize(tenant) for tenant in DEFAULT_TENANTS]
+
+
+def default_roles_permissions() -> list[dict[str, Any]]:
+    return [serialize(role) for role in DEFAULT_ROLES_PERMISSIONS]
+
+
+def bearer_token(authorization: str | None) -> str | None:
+    if not authorization:
+        return None
+    value = authorization.strip()
+    if value.lower().startswith("bearer "):
+        return value.split(" ", 1)[1].strip() or None
+    return value or None
+
+
+def current_role_from_authorization(authorization: str | None) -> str:
+    token = bearer_token(authorization)
+    if not token:
+        return "guest"
+    decoded = decode_access_token(token)
+    if not decoded:
+        return "guest"
+    role = str(decoded.get("role") or decoded.get("perfil") or "viewer").strip().lower()
+    if role in {"administrator", "superadmin"}:
+        return "admin"
+    return role or "viewer"
+
+
+def module_allowed_for_role(role: str, module: str) -> bool:
+    role_norm = str(role or "guest").strip().lower()
+    module_norm = str(module or "").strip().lower()
+    if role_norm == "admin":
+        return True
+    permissions = MODULE_PERMISSION_MATRIX.get(role_norm, MODULE_PERMISSION_MATRIX["viewer"])
+    return "*" in permissions or module_norm in permissions
+
+
+def enforce_module_permission(module: str, authorization: str | None) -> None:
+    token = bearer_token(authorization)
+    if not token:
+        return
+    role = current_role_from_authorization(authorization)
+    if not module_allowed_for_role(role, module):
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Acesso negado para este modulo")
+
+
+def default_ai_ocr_confidence(parts: dict[str, Any]) -> int:
+    score = 40
+    if parts.get("tipo_documento") and parts.get("tipo_documento") != "documento":
+        score += 15
+    if parts.get("cnpj"):
+        score += 15
+    if parts.get("valor"):
+        score += 10
+    if parts.get("vencimento"):
+        score += 10
+    if parts.get("texto_origem"):
+        score += 10
+    return max(10, min(99, score))
+
+
+def extract_first_match(patterns: list[str], text: str) -> str | None:
+    for pattern in patterns:
+        match = re.search(pattern, text, flags=re.IGNORECASE)
+        if match:
+            return match.group(0)
+    return None
+
+
+def normalize_currency_value(value: str | None) -> float | None:
+    if not value:
+        return None
+    cleaned = value.strip()
+    cleaned = cleaned.replace("R$", "").replace(" ", "")
+    cleaned = cleaned.replace(".", "").replace(",", ".")
+    cleaned = re.sub(r"[^0-9.\-]", "", cleaned)
+    try:
+        return float(cleaned)
+    except ValueError:
+        return None
+
+
+def ai_classify_ocr_text(text: str) -> dict[str, Any]:
+    normalized = (text or "").strip()
+    lowered = normalized.lower()
+    tipo_documento = "documento"
+    if any(keyword in lowered for keyword in ["nfe", "nota fiscal eletrônica", "nota fiscal eletronica", "danfe"]):
+        tipo_documento = "nfe"
+    elif any(keyword in lowered for keyword in ["nfse", "nota fiscal de servico", "nota fiscal de serviço"]):
+        tipo_documento = "nfse"
+    elif any(keyword in lowered for keyword in ["pgdas", "simples nacional", "das"]):
+        tipo_documento = "pgdas"
+    elif any(keyword in lowered for keyword in ["certidao", "certidão", "cnd"]):
+        tipo_documento = "certidao"
+    elif any(keyword in lowered for keyword in ["boleto", "linha digitavel", "linha digitável"]):
+        tipo_documento = "boleto"
+    elif any(keyword in lowered for keyword in ["guia", "guia de recolhimento"]):
+        tipo_documento = "guia"
+
+    cnpj_match = extract_first_match(
+        [
+            r"\d{2}\.?\d{3}\.?\d{3}/?\d{4}-?\d{2}",
+            r"\b\d{14}\b",
+        ],
+        normalized,
+    )
+    cnpj = digits_only(cnpj_match) if cnpj_match else None
+
+    valor_match = extract_first_match(
+        [
+            r"R\$\s*\d{1,3}(?:\.\d{3})*,\d{2}",
+            r"\b\d{1,3}(?:\.\d{3})*,\d{2}\b",
+            r"\b\d+\.\d{2}\b",
+        ],
+        normalized,
+    )
+    valor = normalize_currency_value(valor_match) if valor_match else None
+
+    vencimento_match = extract_first_match(
+        [
+            r"\b\d{2}/\d{2}/\d{4}\b",
+            r"\b\d{4}-\d{2}-\d{2}\b",
+        ],
+        normalized,
+    )
+    vencimento = vencimento_match or None
+
+    confidence_parts = {
+        "tipo_documento": tipo_documento,
+        "cnpj": cnpj,
+        "valor": valor,
+        "vencimento": vencimento,
+        "texto_origem": normalized[:250],
+    }
+    confidence = default_ai_ocr_confidence(confidence_parts)
+
+    return {
+        "classificacao": tipo_documento,
+        "tipo_documento": tipo_documento,
+        "cnpj": cnpj,
+        "valor": valor,
+        "vencimento": vencimento,
+        "score_confianca": confidence,
+        "campos_extraidos": confidence_parts,
+    }
+
+
+def log_ocr_process_event(payload: dict[str, Any]) -> dict[str, Any]:
+    document = {
+        **serialize(payload),
+        "created_at": payload.get("created_at") or now(),
+    }
+    result = db["ocr_process_logs"].insert_one(document)
+    document["id"] = str(result.inserted_id)
+    return serialize(document)
 
 
 class NotificationHub:
@@ -1391,7 +1612,7 @@ def me():
 
 @app.get("/api/dashboard")
 def dashboard():
-    success_statuses = ["sucesso", "processado", "concluido", "concluida"]
+    success_statuses = ["sucesso", "processado", "concluido", "concluida", "done", "processed"]
     delivered_statuses = ["entregue", "entregues", "concluido", "concluida", "sucesso"]
     empresas = safe_count("empresas")
     documentos = safe_count("documentos")
@@ -1497,10 +1718,218 @@ def dashboard():
     return envelope(data, total=1, **data)
 
 
-def collection_response(collection_name: str, alias: str | None = None):
+def monthly_key(value: Any) -> str | None:
+    parsed = parse_date_like(value)
+    if not parsed:
+        return None
+    return f"{parsed.year:04d}-{parsed.month:02d}"
+
+
+def analytics_month_series(collection_name: str, field: str = "created_at", months_back: int = 12) -> list[dict[str, Any]]:
+    today = datetime.now().date()
+    months: list[str] = []
+    year = today.year
+    month = today.month
+    for _ in range(months_back):
+        months.append(f"{year:04d}-{month:02d}")
+        month -= 1
+        if month == 0:
+            month = 12
+            year -= 1
+    months = list(reversed(months))
+    counts = {month_key: 0 for month_key in months}
+    try:
+        for item in db[collection_name].find({}):
+            key = monthly_key(item.get(field))
+            if key in counts:
+                counts[key] += 1
+    except Exception:
+        pass
+    return [{"mes": month_key, "total": counts[month_key]} for month_key in months]
+
+
+def risk_score_for_empresa(company: dict[str, Any]) -> dict[str, Any]:
+    company_serialized = serialize(company)
+    empresa_id = str(company_serialized.get("id") or company_serialized.get("_id"))
+    timeline_payload = build_company_timeline(empresa_id, limit=200)
+    resumo = timeline_payload.get("resumo") or {}
+    score = fiscal_health_score(
+        {
+            "eventos_criticos": resumo.get("criticos", 0),
+            "eventos_altos": resumo.get("altos", 0),
+            "obrigacoes_pendentes": resumo.get("obrigacoes", 0),
+            "ocr_erros": sum(1 for item in timeline_payload.get("timeline", []) if item.get("fonte") == "documentos" and str(item.get("status") or "").lower() == "erro"),
+            "debitos_em_aberto": resumo.get("debitos", 0),
+        }
+    )
+    return {
+        "empresa_id": empresa_id,
+        "empresa": {
+            "id": empresa_id,
+            "nome": company_serialized.get("nome") or company_serialized.get("razao_social") or company_serialized.get("nome_fantasia"),
+            "cnpj": company_serialized.get("cnpj"),
+        },
+        "score": score,
+        "eventos_criticos": resumo.get("criticos", 0),
+        "eventos_altos": resumo.get("altos", 0),
+        "obrigacoes_pendentes": resumo.get("obrigacoes", 0),
+        "alertas": resumo.get("alertas", 0),
+        "debitos": resumo.get("debitos", 0),
+    }
+
+
+@app.get("/api/dashboard/analytics")
+def dashboard_analytics():
+    empresa_scores: list[dict[str, Any]] = []
+    for company in db["empresas"].find({}):
+        try:
+            empresa_scores.append(risk_score_for_empresa(company))
+        except HTTPException:
+            continue
+
+    empresa_scores.sort(key=lambda item: (item.get("score", 0), item.get("obrigacoes_pendentes", 0)))
+    ranking_risco = empresa_scores[:10]
+
+    eventos_monthly = analytics_month_series("pipeline_events")
+    alertas_monthly = analytics_month_series("alertas")
+    ocr_monthly = analytics_month_series("ocr_documentos")
+
+    data = {
+        "tendencia_mensal": {
+            "eventos": eventos_monthly,
+            "alertas": alertas_monthly,
+            "ocr": ocr_monthly,
+        },
+        "evolucao_debitos": analytics_month_series("debitos"),
+        "score_fiscal_empresas": empresa_scores,
+        "ranking_risco": ranking_risco,
+        "saude_fiscal": fiscal_health_score(
+            {
+                "eventos_criticos": safe_count("pipeline_events", {"severidade": {"$in": ["critica", "alta"]}, "status": {"$nin": ["resolvido"]}}),
+                "eventos_altos": safe_count("pipeline_events", {"severidade": "alta", "status": {"$nin": ["resolvido"]}}),
+                "obrigacoes_pendentes": safe_count("obrigacoes", {"status": "pendente"}),
+                "ocr_erros": safe_count("ocr_documentos", status_not_in(["sucesso", "processado", "concluido", "concluida", "done", "processed"])),
+                "debitos_em_aberto": safe_count("debitos", {"status": {"$in": ["aberto", "pendente", "vencido", "em aberto"]}}),
+            }
+        ),
+        "eventos_novos": safe_count("pipeline_events", {"status": "novo"}),
+        "eventos_criticos": safe_count("pipeline_events", {"severidade": {"$in": ["critica", "alta"]}, "status": {"$nin": ["resolvido"]}}),
+        "obrigacoes_pendentes": safe_count("obrigacoes", {"status": "pendente"}),
+        "alertas_criticos": safe_count("alertas", {"prioridade": {"$in": ["critica", "alta"]}, **alert_open_query()}),
+        "ultimos_eventos": serialize(list(db["pipeline_events"].find({}).sort("created_at", -1).limit(10))),
+    }
+    return envelope(data, total=1, **data)
+
+
+def collection_response(collection_name: str, alias: str | None = None, fallback: list[dict[str, Any]] | None = None):
     data = list_collection(collection_name)
+    if not data and fallback is not None:
+        data = fallback
     extra = {alias: data} if alias else {}
-    return envelope(data, total=safe_count(collection_name), **extra)
+    total = safe_count(collection_name)
+    if not total and data:
+        total = len(data)
+    return envelope(data, total=total, **extra)
+
+
+@app.get("/api/integracoes/ecac/status")
+def integracao_ecac_status(cnpj: str, authorization: str | None = Header(default=None)):
+    enforce_module_permission("integracoes", authorization)
+    data = ecac_service.status(cnpj)
+    return envelope(data, **data)
+
+
+@app.get("/api/integracoes/ecac/debitos")
+def integracao_ecac_debitos(cnpj: str, authorization: str | None = Header(default=None)):
+    enforce_module_permission("integracoes", authorization)
+    debitos = ecac_service.debitos(cnpj)
+    payload = {
+        "cnpj": digits_only(cnpj),
+        "debitos": debitos,
+        "total_debitos": len(debitos),
+    }
+    return envelope(payload, total=len(debitos), **payload)
+
+
+@app.get("/api/integracoes/pgdas/consultar")
+def integracao_pgdas_consultar(cnpj: str, periodo: str | None = None, authorization: str | None = Header(default=None)):
+    enforce_module_permission("integracoes", authorization)
+    data = pgdas_service.consultar(cnpj, periodo)
+    return envelope(data, **data)
+
+
+@app.get("/api/integracoes/sefaz/nfe")
+def integracao_sefaz_nfe(cnpj: str, periodo: str | None = None, authorization: str | None = Header(default=None)):
+    enforce_module_permission("integracoes", authorization)
+    data = sefaz_service.consultar_nfe(cnpj, periodo)
+    return envelope(data, total=len(data.get("documentos", [])), **data)
+
+
+@app.get("/api/decisions")
+def list_decisions(limit: int = 100):
+    data = list_collection("decision_actions", limit=limit)
+    return envelope(data, total=safe_count("decision_actions"), decisions=data)
+
+
+@app.post("/api/decisions")
+def create_decision(payload: dict, authorization: str | None = Header(default=None)):
+    enforce_module_permission("decisions", authorization)
+    event = payload.get("event") if isinstance(payload.get("event"), dict) else payload.get("evento")
+    if isinstance(event, dict):
+        decision = decision_engine.analyze(event)
+    else:
+        decision = {
+            "event_id": payload.get("event_id") or payload.get("evento_id"),
+            "empresa_id": payload.get("empresa_id"),
+            "origem": payload.get("origem") or "usuario",
+            "tipo_evento": payload.get("tipo_evento") or payload.get("tipo") or "evento",
+            "severidade": payload.get("severidade") or "media",
+            "acao_sugerida": payload.get("acao_sugerida") or "revisar",
+            "acao_automatica": bool(payload.get("acao_automatica")),
+            "prioridade": payload.get("prioridade") or "media",
+            "motivo": payload.get("motivo") or "Decisao registrada manualmente",
+            "status": "pendente",
+            "executado": False,
+            "created_at": now(),
+        }
+    document = {
+        **decision,
+        "created_at": decision.get("created_at") or now(),
+    }
+    result = db["decision_actions"].insert_one(document)
+    document["id"] = str(result.inserted_id)
+    return envelope(document, **document)
+
+
+@app.post("/api/decisions/{item_id}/execute")
+def execute_decision(item_id: str, authorization: str | None = Header(default=None)):
+    enforce_module_permission("decisions", authorization)
+    stored = db["decision_actions"].find_one(object_query(item_id))
+    if not stored:
+        raise HTTPException(status_code=404, detail="Decisao nao encontrada")
+    decision = serialize(stored)
+    executed = decision_engine.execute(decision)
+    db["decision_actions"].update_one(
+        object_query(item_id),
+        {"$set": executed},
+    )
+    refreshed = db["decision_actions"].find_one(object_query(item_id)) or executed
+    return envelope(refreshed, **serialize(refreshed))
+
+
+@app.get("/api/subscriptions/plans")
+def list_subscription_plans():
+    return collection_response("subscription_plans", "plans", fallback=default_subscription_plans())
+
+
+@app.get("/api/tenants")
+def list_tenants():
+    return collection_response("tenants", "tenants", fallback=default_tenants())
+
+
+@app.get("/api/rbac/roles-permissions")
+def list_roles_permissions():
+    return collection_response("roles_permissions", "roles_permissions", fallback=default_roles_permissions())
 
 
 @app.get("/api/empresas")
@@ -1565,6 +1994,120 @@ def excluir_documento(item_id: str):
     return envelope(delete_document("documentos", item_id))
 
 
+def normalize_ocr_status(value: Any) -> str:
+    raw = str(value or "").strip().lower()
+    mapping = {
+        "recebido": "pending",
+        "pendente": "pending",
+        "pending": "pending",
+        "processando": "processing",
+        "processing": "processing",
+        "done": "done",
+        "processado": "done",
+        "sucesso": "done",
+        "success": "done",
+        "concluido": "done",
+        "concluida": "done",
+        "error": "error",
+        "erro": "error",
+        "falha": "error",
+    }
+    return mapping.get(raw, raw or "pending")
+
+
+def ocr_source_text(payload: dict[str, Any], existing_document: dict[str, Any] | None = None) -> str:
+    candidates: list[str] = []
+    if existing_document:
+        for key in ("nome_arquivo", "texto_extraido", "conteudo", "raw_text", "descricao", "titulo"):
+            value = existing_document.get(key)
+            if isinstance(value, str) and value.strip():
+                candidates.append(value)
+    for key in ("texto", "text", "conteudo", "conteudo_texto", "raw_text", "descricao", "titulo", "nome_arquivo"):
+        value = payload.get(key)
+        if isinstance(value, str) and value.strip():
+            candidates.append(value)
+    dados_extraidos = payload.get("dados_extraidos")
+    if isinstance(dados_extraidos, dict):
+        for value in dados_extraidos.values():
+            if isinstance(value, str) and value.strip():
+                candidates.append(value)
+    return " ".join(candidates).strip()
+
+
+def process_ocr_payload(payload: dict[str, Any], existing_document: dict[str, Any] | None = None) -> dict[str, Any]:
+    base_document = serialize(existing_document) if existing_document else {}
+    source_text = ocr_source_text(payload, base_document)
+    ai_result = ai_classify_ocr_text(source_text)
+    status = "error" if payload.get("force_error") else "done"
+    processed_at = now()
+    extracted = {
+        "cnpj": ai_result["cnpj"] or payload.get("cnpj") or base_document.get("cnpj"),
+        "valor": ai_result["valor"] if ai_result["valor"] is not None else payload.get("valor") or base_document.get("valor"),
+        "vencimento": ai_result["vencimento"] or payload.get("vencimento") or base_document.get("vencimento"),
+        "tipo_documento": ai_result["tipo_documento"],
+        "classificacao": ai_result["classificacao"],
+    }
+    if status == "error":
+        extracted["erro"] = payload.get("erro") or "Falha simulada de processamento OCR"
+    confidence = ai_result["score_confianca"] if status == "done" else max(10, ai_result["score_confianca"] - 30)
+    document = {
+        **base_document,
+        **serialize(payload),
+        "status": status,
+        "status_processamento": status,
+        "score_confianca": confidence,
+        "dados_extraidos": extracted,
+        "validacoes": {
+            "cnpj": bool(extracted.get("cnpj")),
+            "valor": extracted.get("valor") is not None,
+            "vencimento": bool(extracted.get("vencimento")),
+        },
+        "texto_origem": source_text[:5000],
+        "processado_em": processed_at,
+        "updated_at": processed_at,
+    }
+    if extracted.get("cnpj"):
+        document["cnpj"] = extracted["cnpj"]
+    if extracted.get("valor") is not None:
+        document["valor"] = extracted["valor"]
+    if extracted.get("vencimento"):
+        document["vencimento"] = extracted["vencimento"]
+    document["tipo_documento"] = extracted["tipo_documento"]
+    document["classificacao"] = extracted["classificacao"]
+    return document
+
+
+def persist_ocr_document(document: dict[str, Any], existing_id: str | None = None) -> dict[str, Any]:
+    stored_document = dict(document)
+    if existing_id:
+        db["ocr_documentos"].update_one(object_query(existing_id), {"$set": stored_document}, upsert=True)
+        refreshed = db["ocr_documentos"].find_one(object_query(existing_id)) or stored_document
+    else:
+        result = db["ocr_documentos"].insert_one(stored_document)
+        stored_document["_id"] = result.inserted_id
+        refreshed = stored_document
+    normalized = serialize(refreshed)
+    normalized["id"] = str(normalized.get("id") or normalized.get("_id") or existing_id or ObjectId())
+    return normalized
+
+
+def log_ocr_processing(existing_id: str | None, payload: dict[str, Any], document: dict[str, Any]) -> None:
+    log_ocr_process_event(
+        {
+            "ocr_documento_id": existing_id or document.get("id"),
+            "status": document.get("status"),
+            "classificacao": document.get("classificacao"),
+            "score_confianca": document.get("score_confianca"),
+            "empresa_id": document.get("empresa_id") or payload.get("empresa_id") or payload.get("empresaId"),
+            "created_at": now(),
+            "detalhes": {
+                "entrada": payload,
+                "dados_extraidos": document.get("dados_extraidos", {}),
+            },
+        }
+    )
+
+
 @app.post("/api/ocr/upload")
 async def upload_ocr(file: UploadFile = File(...)):
     filename = file.filename or ""
@@ -1589,6 +2132,35 @@ async def upload_ocr(file: UploadFile = File(...)):
     return envelope(document, total=1, **serialize(document))
 
 
+@app.post("/api/ocr/process")
+def process_ocr(payload: dict, authorization: str | None = Header(default=None)):
+    enforce_module_permission("ocr", authorization)
+    document_id = str(payload.get("id") or payload.get("ocr_id") or payload.get("documento_id") or "").strip() or None
+    existing_document = None
+    if document_id:
+        existing_document = db["ocr_documentos"].find_one(object_query(document_id))
+    if not existing_document and isinstance(payload.get("documento"), dict):
+        existing_document = payload["documento"]
+    processed = process_ocr_payload(payload, existing_document)
+    stored = persist_ocr_document(processed, existing_id=document_id)
+    log_ocr_processing(document_id, payload, stored)
+    return envelope(stored, **stored)
+
+
+@app.post("/api/ocr/ai-analyze")
+def ai_analyze_ocr(payload: dict, authorization: str | None = Header(default=None)):
+    enforce_module_permission("ocr", authorization)
+    source_text = ocr_source_text(payload, payload if isinstance(payload, dict) else None)
+    result = ai_classify_ocr_text(source_text)
+    data = {
+        **result,
+        "texto_origem": source_text[:5000],
+        "status": "done",
+        "analise": "classificacao estruturada gerada com regras deterministicas",
+    }
+    return envelope(data, **data)
+
+
 @app.get("/api/ocr/documentos")
 def listar_ocr_documentos():
     return collection_response("ocr_documentos", "documentos")
@@ -1601,7 +2173,7 @@ def ocr_tipos_suportados():
 
 @app.get("/api/ocr/estatisticas")
 def ocr_estatisticas():
-    success_statuses = ["sucesso", "processado", "concluido", "concluida"]
+    success_statuses = ["sucesso", "processado", "concluido", "concluida", "done", "processed"]
     total = safe_count("ocr_documentos")
     processados = safe_count("ocr_documentos", status_in(success_statuses))
     revisao = safe_count("ocr_documentos", {"status": {"$in": ["revisao", "pendente_revisao"]}})
