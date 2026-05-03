@@ -30,7 +30,7 @@ LOG_ONLY_REASONS = {
 }
 RETRYABLE_REASONS = {"delivery_failed", "rate_limited"}
 MAX_CHANNEL_ATTEMPTS = 3
-RATE_LIMIT_DEFAULTS = {"email": 60, "whatsapp": 30}
+RATE_LIMIT_DEFAULTS = {"email": 60, "whatsapp": 30, "teams": 30, "slack": 30}
 
 
 def now() -> str:
@@ -126,8 +126,9 @@ def idempotency_key(notification: dict[str, Any], channel: str, recipient: str) 
 
 
 def rate_limit_for(channel: str) -> int | None:
-    env_name = f"NOTIFICATION_{channel.upper()}_RATE_LIMIT_PER_MIN"
-    raw = os.environ.get(env_name)
+    env_name = f"NOTIFICATION_{channel.upper()}_RATE_PER_MIN"
+    legacy_env_name = f"NOTIFICATION_{channel.upper()}_RATE_LIMIT_PER_MIN"
+    raw = os.environ.get(env_name) or os.environ.get(legacy_env_name)
     try:
         return int(raw) if raw else RATE_LIMIT_DEFAULTS.get(channel)
     except ValueError:
@@ -340,22 +341,28 @@ def notification_metrics(db: Any) -> dict[str, Any]:
     sent = [item for item in logs if item.get("status") == "success"]
     errors = [item for item in logs if item.get("status") == "error"]
     retrying = [item for item in logs if item.get("status") == "retrying"]
+    log_only = [item for item in logs if item.get("status") == "log_only" or item.get("mode") == "log_only"]
     durations = [int(item.get("duration_ms") or 0) for item in logs if int(item.get("duration_ms") or 0) > 0]
     channels = get_notification_channels(db)
     today = datetime.utcnow().date().isoformat()
     sent_today = [item for item in sent if str(item.get("created_at") or "").startswith(today)]
+    errors_today = [item for item in errors if str(item.get("created_at") or "").startswith(today)]
     total_terminal = len(sent) + len(errors)
     success_rate = 0 if total_terminal == 0 else round((len(sent) / total_terminal) * 100, 2)
     latest_errors = sorted(errors, key=lambda item: item.get("created_at") or "", reverse=True)[:5]
+    avg_duration = round(sum(durations) / len(durations), 2) if durations else 0
     return {
         "total_enviados": len(sent),
         "total_erros": len(errors),
         "total_retrying": len(retrying),
-        "tempo_medio_envio": round(sum(durations) / len(durations), 2) if durations else 0,
+        "total_log_only": len(log_only),
+        "tempo_medio_envio": avg_duration,
+        "tempo_medio_envio_ms": avg_duration,
         "canais_ativos": [item["name"] for item in channels if item.get("configured")],
         "ultimos_erros": [serialize(item) for item in latest_errors],
         "enviadas_hoje": len(sent_today),
         "falhas": len(errors),
+        "falhas_hoje": len(errors_today),
         "taxa_sucesso": success_rate,
     }
 
@@ -374,15 +381,19 @@ def queue_notification_dispatch(
         log_notification(
             db,
             {
-                "status": "skipped",
+                "status": "log_only",
                 "mode": "log_only",
                 "reason": "no_matching_preferences",
                 "channel": "all",
                 "targets": [],
+                "recipient_masked": None,
+                "payload_hash": payload_hash(notification),
+                "attempts": 0,
+                "duration_ms": 0,
                 "tipo": tipo,
                 "prioridade": notification["prioridade"],
                 "subject": notification["subject"],
-                "notification": notification,
+                "notification": {**notification, "targets": {}},
             },
         )
         return None
@@ -418,7 +429,7 @@ def dispatch_notification(db: Any, job_id: str, notification: dict[str, Any]) ->
 
             if not valid_recipient(channel_name, target):
                 result = {"channel": channel_name, "sent": False, "mode": "validation", "reason": "invalid_recipient", "targets": [masked_target]}
-            elif channel_name in {"email", "whatsapp"} and channel_rate_limited(db, channel_name):
+            elif channel_rate_limited(db, channel_name):
                 result = {"channel": channel_name, "sent": False, "mode": "rate_limit", "reason": "rate_limited", "targets": [masked_target]}
             else:
                 result = channel.send(notification, [target])
@@ -429,7 +440,7 @@ def dispatch_notification(db: Any, job_id: str, notification: dict[str, Any]) ->
                 status = "success"
                 retry_at = None
             elif reason in LOG_ONLY_REASONS:
-                status = "skipped"
+                status = "log_only"
                 retry_at = None
             elif reason in RETRYABLE_REASONS and attempts < MAX_CHANNEL_ATTEMPTS:
                 status = "retrying"
@@ -454,6 +465,7 @@ def dispatch_notification(db: Any, job_id: str, notification: dict[str, Any]) ->
                     "next_retry_at": retry_at,
                     "channel": channel_name,
                     "recipient": masked_target,
+                    "recipient_masked": masked_target,
                     "targets": [masked_target],
                     "attempts": attempts,
                     "duration_ms": duration_ms,
@@ -468,7 +480,7 @@ def dispatch_notification(db: Any, job_id: str, notification: dict[str, Any]) ->
                 db["email_logs"].insert_one(
                     {
                         "job_id": job_id,
-                        "status": "done" if status in {"success", "skipped"} else status,
+                        "status": "done" if status in {"success", "skipped", "log_only"} else status,
                         "mode": result.get("mode"),
                         "reason": reason,
                         "subject": notification.get("subject"),

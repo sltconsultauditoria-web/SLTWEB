@@ -164,6 +164,24 @@ def _use_redis_queue() -> bool:
     return bool(enabled and redis and Queue and os.environ.get("REDIS_URL"))
 
 
+def _parse_datetime(value: Any) -> datetime | None:
+    if isinstance(value, datetime):
+        return value
+    if not value:
+        return None
+    try:
+        return datetime.fromisoformat(str(value).replace("Z", "+00:00").replace("+00:00", ""))
+    except ValueError:
+        return None
+
+
+def _job_ready(job: dict[str, Any] | None) -> bool:
+    if not job:
+        return False
+    next_retry = _parse_datetime(job.get("next_retry_at"))
+    return not next_retry or next_retry <= datetime.utcnow()
+
+
 def _rq_enqueue(job_id: str) -> None:
     if not _use_redis_queue():
         return
@@ -171,6 +189,11 @@ def _rq_enqueue(job_id: str) -> None:
 
     connection = Redis.from_url(os.environ["REDIS_URL"])
     queue = Queue("consultslt-jobs", connection=connection)
+    stored = load_job(job_id)
+    next_retry = _parse_datetime((stored or {}).get("next_retry_at"))
+    if next_retry and next_retry > datetime.utcnow() and hasattr(queue, "enqueue_at"):
+        queue.enqueue_at(next_retry, process_job, job_id, job_timeout=1800)
+        return
     queue.enqueue(process_job, job_id, job_timeout=1800)
 
 
@@ -187,6 +210,11 @@ def _ensure_local_worker() -> None:
                     job_id = LOCAL_JOB_QUEUE.pop(0)
             if not job_id:
                 threading.Event().wait(0.1)
+                continue
+            if not _job_ready(load_job(job_id)):
+                with LOCAL_JOB_LOCK:
+                    LOCAL_JOB_QUEUE.append(job_id)
+                threading.Event().wait(0.5)
                 continue
             process_job(job_id)
 

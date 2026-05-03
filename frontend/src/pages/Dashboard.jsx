@@ -8,6 +8,7 @@ import {
   Clock,
   FileCheck,
   FileText,
+  Send,
   ScanLine,
   ShieldCheck,
   TrendingUp
@@ -138,7 +139,10 @@ const Dashboard = () => {
       alertasCriticos,
       guiasGeradas: metricValue(dashboard.das_gerados_mes, toNumber(dashboard.guias)),
       certidoesEmitidas: metricValue(dashboard.certidoes_emitidas_mes, toNumber(dashboard.certidoes)),
-      taxaConformidade: toNumber(dashboard.taxa_conformidade)
+      taxaConformidade: toNumber(dashboard.taxa_conformidade),
+      notificacoesEnviadasHoje: toNumber(dashboard.notificacoesEnviadasHoje || dashboard.notificacoes_enviadas_hoje),
+      notificacoesFalhasHoje: toNumber(dashboard.notificacoesFalhasHoje),
+      notificacoesTaxaSucesso: toNumber(dashboard.notificacoesTaxaSucesso || dashboard.notificacoes_taxa_sucesso)
     };
   }, [alertas, dashboard, documentos, empresas, obrigacoes, ocrStats]);
 
@@ -212,6 +216,12 @@ const Dashboard = () => {
         <StatCard title="OCR Processados" value={formatarNumero(metrics.ocrProcessados)} icon={ShieldCheck} color="bg-emerald-500" subtitle="Concluidos com sucesso" />
         <StatCard title="OCR Pendentes" value={formatarNumero(metrics.ocrPendentes)} icon={Clock} color="bg-yellow-500" subtitle="Recebidos ou em revisao" />
         <StatCard title="Taxa OCR" value={formatarPercentual(dashboard.taxa_ocr_sucesso || ocrStats.taxa_sucesso)} icon={ScanLine} color="bg-blue-500" subtitle="Baseada nos documentos OCR" />
+      </div>
+
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+        <StatCard title="Notificacoes Hoje" value={formatarNumero(metrics.notificacoesEnviadasHoje)} icon={Send} color="bg-sky-500" subtitle="Envios confirmados" />
+        <StatCard title="Falhas de Notificacao" value={formatarNumero(metrics.notificacoesFalhasHoje)} icon={AlertTriangle} color="bg-red-500" subtitle="Falhas registradas hoje" />
+        <StatCard title="Taxa Notificacoes" value={formatarPercentual(metrics.notificacoesTaxaSucesso)} icon={TrendingUp} color="bg-emerald-500" subtitle="Sucesso dos envios" />
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">

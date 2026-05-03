@@ -760,8 +760,10 @@ def test_manual_alert_creation_queues_email_notification(client):
     assert any(
         item["tipo"] == "alerta"
         and item["channel"] == "email"
-        and item["recipient"].startswith("fi***")
+        and item["recipient_masked"].startswith("fi***")
         and item["payload_hash"]
+        and item["idempotency_key"]
+        and "duration_ms" in item
         and item["attempts"] == 1
         for item in logs
     )
@@ -801,13 +803,23 @@ def test_multichannel_notification_preferences_and_test_log_without_config(clien
     wait_for_job(client, job["id"])
 
     logs = client.get("/api/notificacoes/logs", params={"channel": "whatsapp"}, follow_redirects=False).json()["data"]
-    assert any(item["mode"] == "log_only" and item["reason"] == "whatsapp_not_configured" and item["recipient"].startswith("***") for item in logs)
+    assert any(
+        item["status"] == "log_only"
+        and item["mode"] == "log_only"
+        and item["reason"] == "whatsapp_not_configured"
+        and item["recipient_masked"].startswith("***")
+        for item in logs
+    )
 
     metrics = client.get("/api/notificacoes/metrics", follow_redirects=False).json()["data"]
     assert "total_enviados" in metrics
     assert "total_erros" in metrics
-    assert "tempo_medio_envio" in metrics
+    assert "total_retrying" in metrics
+    assert "total_log_only" in metrics
+    assert "taxa_sucesso" in metrics
+    assert "tempo_medio_envio_ms" in metrics
     assert "canais_ativos" in metrics
+    assert "ultimos_erros" in metrics
 
 
 def test_configured_whatsapp_channel_sends(monkeypatch):
@@ -889,7 +901,7 @@ def test_notification_rate_limit_retries(monkeypatch):
     from backend.services import notification_service
 
     db = make_db()
-    monkeypatch.setenv("NOTIFICATION_EMAIL_RATE_LIMIT_PER_MIN", "1")
+    monkeypatch.setenv("NOTIFICATION_EMAIL_RATE_PER_MIN", "1")
     db["notification_logs"].insert_one(
         {
             "channel": "email",
@@ -912,6 +924,15 @@ def test_notification_rate_limit_retries(monkeypatch):
     log = db["notification_logs"].find_one({"reason": "rate_limited"})
     assert log["status"] == "retrying"
     assert log["next_retry_at"]
+
+
+def test_dashboard_contains_notification_metrics(client):
+    response = client.get("/api/dashboard", follow_redirects=False)
+    assert response.status_code == 200
+    payload = response.json()["data"]
+    assert "notificacoesEnviadasHoje" in payload
+    assert "notificacoesFalhasHoje" in payload
+    assert "notificacoesTaxaSucesso" in payload
 
 
 def test_worker_requeues_notification_dispatch_retry(client, monkeypatch):

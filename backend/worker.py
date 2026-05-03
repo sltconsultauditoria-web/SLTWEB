@@ -3,7 +3,7 @@ from __future__ import annotations
 import os
 import time
 
-from backend.workers.async_jobs import _use_redis_queue, job_db, process_job
+from backend.workers.async_jobs import _job_ready, _use_redis_queue, job_db, process_job
 
 
 def run_polling_worker() -> None:
@@ -11,6 +11,8 @@ def run_polling_worker() -> None:
     while True:
         pending = list(job_db()["jobs"].find({"status": "pending"}).sort("created_at", 1).limit(50))
         for job in pending:
+            if not _job_ready(job):
+                continue
             process_job(str(job.get("id") or job.get("_id")))
         time.sleep(float(os.environ.get("WORKER_POLL_INTERVAL_SECONDS", "1.0")))
 
@@ -31,4 +33,3 @@ def main() -> None:
 
 if __name__ == "__main__":
     main()
-
