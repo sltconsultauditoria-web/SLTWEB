@@ -21,6 +21,12 @@ from backend.integrations.government.sefaz_service import SEFAZService
 from backend.core.security import create_access_token, decode_access_token
 from backend.services.decision_engine import DecisionEngine
 from backend.services.email_service import public_smtp_config
+from backend.services.notification_service import (
+    get_notification_channels,
+    list_notification_preferences,
+    queue_notification_dispatch,
+    save_notification_preferences,
+)
 from backend.workers.async_jobs import create_job, job_metrics as async_job_metrics, list_jobs as list_async_jobs, load_job as load_async_job, retry_job as retry_async_job
 
 app = FastAPI(title="CONSULTSLT ENTERPRISE")
@@ -911,30 +917,7 @@ def enqueue_email_notification(tipo: str, document: dict[str, Any]) -> dict[str,
     config = load_alerts_config()
     if not bool(config.get("email_enabled", True)):
         return None
-    prioridade = normalize_severidade(document.get("prioridade") or document.get("severidade"))
-    recipients = [
-        str(recipient.get("email")).strip()
-        for recipient in list_alert_recipients()
-        if recipient_accepts_notification(recipient, tipo, prioridade)
-    ]
-    notification = build_email_notification(tipo, document, recipients)
-    if not recipients:
-        db["email_logs"].insert_one(
-            {
-                "status": "skipped",
-                "mode": "log_only",
-                "reason": "no_matching_recipients",
-                "subject": notification["subject"],
-                "destinatarios": [],
-                "tipo": tipo,
-                "prioridade": prioridade,
-                "notification": notification,
-                "created_at": now(),
-                "duration_ms": 0,
-            }
-        )
-        return None
-    return create_job("email_notification", {"notification": notification}, max_attempts=3)
+    return queue_notification_dispatch(db, create_job, tipo, document, max_attempts=3)
 
 
 def broadcast_notification(tipo: str, severidade: str, empresa_id: Any, mensagem: str) -> None:
@@ -2850,6 +2833,73 @@ def test_alert_channel(payload: dict):
         recipient=recipient,
         simulated=True,
     )
+
+
+@app.get("/api/notificacoes/channels")
+def get_notification_channel_list():
+    data = get_notification_channels(db)
+    return envelope(data, channels=data)
+
+
+@app.get("/api/notificacoes/preferences")
+def get_notification_preferences():
+    data = list_notification_preferences(db)
+    return envelope(data, preferences=data)
+
+
+@app.put("/api/notificacoes/preferences")
+def put_notification_preferences(payload: dict):
+    try:
+        data = save_notification_preferences(db, request_data(payload) if isinstance(payload, dict) else payload)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    return envelope(data, preferences=data)
+
+
+@app.post("/api/notificacoes/test")
+def test_notification_dispatch(payload: dict):
+    data = request_data(payload)
+    channel = str(data.get("channel") or "email").strip().lower()
+    if channel not in {"email", "whatsapp", "teams", "slack"}:
+        raise HTTPException(status_code=400, detail="Canal invalido")
+
+    targets = {item: [] for item in ["email", "whatsapp", "teams", "slack"]}
+    if channel == "email":
+        recipient = str(data.get("email") or data.get("recipient") or "").strip()
+        if not recipient:
+            raise HTTPException(status_code=400, detail="Email de destino obrigatorio")
+        targets["email"] = [recipient]
+    elif channel == "whatsapp":
+        phone = str(data.get("whatsapp") or data.get("phone") or data.get("recipient") or "").strip()
+        if not phone:
+            raise HTTPException(status_code=400, detail="Telefone WhatsApp obrigatorio")
+        targets["whatsapp"] = [phone]
+    elif channel == "teams":
+        targets["teams"] = [str(data.get("teams_target") or "default")]
+    elif channel == "slack":
+        targets["slack"] = [str(data.get("slack_target") or "default")]
+
+    notification = {
+        "subject": str(data.get("subject") or "[ConsultSLT] Teste de notificacao"),
+        "destinatarios": targets["email"],
+        "targets": targets,
+        "tipo": "teste",
+        "prioridade": normalize_severidade(data.get("prioridade") or "alta"),
+        "mensagem": str(data.get("mensagem") or "Este e um teste de notificacao multicanal."),
+        "timestamp": now(),
+    }
+    job = create_job("notification_dispatch", {"notification": notification}, max_attempts=1)
+    return envelope({"success": True, "job": job, "notification": notification}, success=True, job=job)
+
+
+@app.get("/api/notificacoes/logs")
+def get_notification_logs(limit: int = 100, channel: str | None = None):
+    query: dict[str, Any] = {}
+    if channel:
+        query["channel"] = channel
+    logs = list(db["notification_logs"].find(query).sort("created_at", -1).limit(limit))
+    data = [serialize(item) for item in logs]
+    return envelope(data, total=safe_count("notification_logs", query), logs=data)
 
 
 @app.get("/api/notificacoes/email/config")

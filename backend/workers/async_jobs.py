@@ -402,6 +402,26 @@ def _process_email_notification_job(job: dict[str, Any]) -> dict[str, Any]:
     return {"email": result, "log_id": log_document["id"]}
 
 
+def _process_notification_dispatch_job(job: dict[str, Any]) -> dict[str, Any]:
+    from backend.services.notification_service import dispatch_notification
+
+    raw_payload = job.get("payload") or {}
+    notification = raw_payload.get("notification") if isinstance(raw_payload.get("notification"), dict) else raw_payload
+    start = perf_counter()
+    result = dispatch_notification(job_db(), str(job.get("id") or ""), notification)
+    status = "error" if result.get("errors") else "done"
+    record_job_log(
+        job_id=str(job.get("id") or ""),
+        provider="notification_dispatch",
+        status=status,
+        duration_ms=int((perf_counter() - start) * 1000),
+        mode="async",
+        error="notification_delivery_failed" if result.get("errors") else None,
+        details={"channels": [item.get("channel") for item in result.get("channels", [])]},
+    )
+    return result
+
+
 def process_job(job_id: str) -> dict[str, Any]:
     job = load_job(job_id)
     if not job:
@@ -422,6 +442,8 @@ def process_job(job_id: str) -> dict[str, Any]:
             result = _process_government_job(job)
         elif job_type == "email_notification":
             result = _process_email_notification_job(job)
+        elif job_type == "notification_dispatch":
+            result = _process_notification_dispatch_job(job)
         else:
             result = {"message": "Job executado sem handler especifico", "payload": job.get("payload")}
 

@@ -213,6 +213,9 @@ def make_db():
         "fiscal_pipeline_logs": FakeCollection([]),
         "job_logs": FakeCollection([]),
         "email_logs": FakeCollection([]),
+        "notification_channels": FakeCollection([]),
+        "notification_preferences": FakeCollection([]),
+        "notification_logs": FakeCollection([]),
         "alerts_config": FakeCollection([{"id": "default", "email_enabled": True, "whatsapp_enabled": False, "teams_enabled": False}]),
         "alerts_recipients": FakeCollection([]),
         "alerts_thresholds": FakeCollection([]),
@@ -279,6 +282,9 @@ def wait_for_job(client, job_id, timeout=5.0):
         ("GET", "/api/integracoes/sefaz/nfe", {"params": {"cnpj": "12345678000100"}}),
         ("GET", "/api/jobs", {}),
         ("GET", "/api/jobs/metrics", {}),
+        ("GET", "/api/notificacoes/channels", {}),
+        ("GET", "/api/notificacoes/preferences", {}),
+        ("GET", "/api/notificacoes/logs", {}),
         ("GET", "/api/notificacoes/email/config", {}),
         ("GET", "/api/notificacoes/email/logs", {}),
         ("GET", "/api/subscriptions/plans", {}),
@@ -745,12 +751,62 @@ def test_manual_alert_creation_queues_email_notification(client):
     created = response.json()["data"]
     assert created["prioridade"] == "alta"
 
-    jobs = client.get("/api/jobs", params={"job_type": "email_notification"}, follow_redirects=False).json()["data"]
+    jobs = client.get("/api/jobs", params={"job_type": "notification_dispatch"}, follow_redirects=False).json()["data"]
     assert jobs
     wait_for_job(client, jobs[0]["id"])
 
-    logs = client.get("/api/notificacoes/email/logs", follow_redirects=False).json()["data"]
-    assert any(item["tipo"] == "alerta" and "fiscal@empresa.com" in item["destinatarios"] for item in logs)
+    logs = client.get("/api/notificacoes/logs", follow_redirects=False).json()["data"]
+    assert any(item["tipo"] == "alerta" and item["channel"] == "email" and "fiscal@empresa.com" in item["targets"] for item in logs)
+
+
+def test_multichannel_notification_preferences_and_test_log_without_config(client):
+    preferences_response = client.put(
+        "/api/notificacoes/preferences",
+        json={
+            "preferences": [
+                {
+                    "name": "Fiscal",
+                    "email": "fiscal@empresa.com",
+                    "whatsapp": "+5511999999999",
+                    "ativo": True,
+                    "channels": ["email", "whatsapp", "teams", "slack"],
+                    "tipos_alerta": ["alerta", "evento"],
+                    "prioridade_minima": "alta",
+                    "horario_inicio": "00:00",
+                    "horario_fim": "23:59",
+                }
+            ]
+        },
+        follow_redirects=False,
+    )
+    assert preferences_response.status_code == 200
+    assert preferences_response.json()["data"][0]["channels"] == ["email", "whatsapp", "teams", "slack"]
+
+    test_response = client.post(
+        "/api/notificacoes/test",
+        json={"channel": "whatsapp", "whatsapp": "+5511888888888", "mensagem": "Teste WhatsApp"},
+        follow_redirects=False,
+    )
+    assert test_response.status_code == 200
+    job = test_response.json()["data"]["job"]
+    assert job["job_type"] == "notification_dispatch"
+    wait_for_job(client, job["id"])
+
+    logs = client.get("/api/notificacoes/logs", params={"channel": "whatsapp"}, follow_redirects=False).json()["data"]
+    assert any(item["mode"] == "log_only" and item["reason"] == "whatsapp_not_configured" for item in logs)
+
+
+def test_configured_whatsapp_channel_sends(monkeypatch):
+    from backend.services.channels.whatsapp_channel import WhatsAppChannel
+    import backend.services.channels.whatsapp_channel as whatsapp_module
+
+    monkeypatch.setenv("WHATSAPP_API_URL", "https://whatsapp.example/messages")
+    monkeypatch.setenv("WHATSAPP_TOKEN", "secret-token")
+    monkeypatch.setattr(whatsapp_module, "post_json", lambda url, payload, headers=None: {"ok": True, "status_code": 200})
+
+    result = WhatsAppChannel().send({"mensagem": "Teste"}, ["+5511999999999"])
+    assert result["sent"] is True
+    assert result["mode"] == "http"
 
 
 def test_realtime_notifications_flow(client):
