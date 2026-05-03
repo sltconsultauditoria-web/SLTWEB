@@ -1,8 +1,7 @@
 import { Navigate, Outlet } from 'react-router-dom';
 import { useAuth } from '@/context/AuthContext';
 import Sidebar from './Sidebar';
-import { Bell } from 'lucide-react';
-import { Button } from '@/components/ui/button';
+import NotificationBell from '@/components/NotificationBell';
 
 const MainLayout = () => {
   const { isAuthenticated, loading, user } = useAuth();
@@ -31,12 +30,7 @@ const MainLayout = () => {
             <p className="text-sm text-gray-500">Powered by SLT Consult</p>
           </div>
           <div className="flex items-center gap-4 shrink-0">
-            <Button variant="ghost" size="icon" className="relative" data-testid="notifications-button">
-              <Bell size={20} />
-              <span className="absolute -top-1 -right-1 bg-red-500 text-white text-xs rounded-full w-5 h-5 flex items-center justify-center">
-                3
-              </span>
-            </Button>
+            <NotificationBell />
             <div className="flex items-center gap-2">
               <div className="w-8 h-8 bg-blue-900 rounded-full flex items-center justify-center text-white font-semibold">
                 {user?.name?.charAt(0) || user?.email?.charAt(0) || 'U'}

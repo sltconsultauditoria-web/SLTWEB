@@ -1,54 +1,46 @@
-import React, { useEffect, useState } from "react";
+import { useEffect, useState } from "react";
+import { Bell } from "lucide-react";
+import { Button } from "@/components/ui/button";
+import { api } from "@/context/AuthContext";
+import { countBadgeAlertas, formatBadgeCount, normalizeAlertas } from "@/lib/alertas";
 
-function NotificationBell({ userId }) {
+function NotificationBell() {
   const [count, setCount] = useState(0);
 
-  const backendUrl = (process.env.REACT_APP_BACKEND_URL || "").replace(/^http/, "ws");
-
   useEffect(() => {
-    if (!userId || !backendUrl) return;
+    let mounted = true;
 
-    const ws = new WebSocket(`${backendUrl}/ws/notifications/${userId}`);
-
-    ws.onopen = () => {
-      console.log("WS conectado");
-    };
-
-    ws.onmessage = (event) => {
-      const data = JSON.parse(event.data);
-
-      if (data.type === "new_notification") {
-        setCount((prev) => prev + 1);
+    const carregarAlertas = async () => {
+      try {
+        const response = await api.get("/alertas/");
+        if (!mounted) return;
+        const items = normalizeAlertas(Array.isArray(response.data) ? response.data : []);
+        setCount(countBadgeAlertas(items));
+      } catch (error) {
+        if (mounted) {
+          setCount(0);
+        }
       }
     };
 
-    ws.onerror = (error) => {
-      console.error("Erro WS:", error);
-    };
+    carregarAlertas();
 
-    return () => ws.close();
-  }, [userId]);
+    return () => {
+      mounted = false;
+    };
+  }, []);
+
+  const badgeValue = formatBadgeCount(count);
 
   return (
-    <div style={{ position: "relative", fontSize: "22px" }}>
-      🔔
+    <Button variant="ghost" size="icon" className="relative" data-testid="notifications-button" type="button">
+      <Bell size={20} />
       {count > 0 && (
-        <span
-          style={{
-            position: "absolute",
-            top: "-5px",
-            right: "-10px",
-            background: "red",
-            color: "white",
-            borderRadius: "50%",
-            padding: "3px 7px",
-            fontSize: "12px"
-          }}
-        >
-          {count}
+        <span className="absolute -top-1 -right-1 min-w-5 h-5 px-1 flex items-center justify-center rounded-full bg-red-500 text-white text-xs">
+          {badgeValue}
         </span>
       )}
-    </div>
+    </Button>
   );
 }
 

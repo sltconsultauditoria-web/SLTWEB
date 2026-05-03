@@ -115,9 +115,103 @@ def status_not_in(statuses: list[str]) -> dict[str, Any]:
     return {"status": {"$nin": statuses}}
 
 
+def normalize_alert_priority(value: Any) -> str:
+    raw = str(value or "").strip().lower()
+    mapping = {
+        "crítico": "critica",
+        "critico": "critica",
+        "critical": "critica",
+        "alta": "alta",
+        "high": "alta",
+        "media": "media",
+        "média": "media",
+        "medium": "media",
+        "baixa": "baixa",
+        "low": "baixa",
+    }
+    return mapping.get(raw, raw or "media")
+
+
+def normalize_alert_status(value: Any) -> str:
+    raw = str(value or "").strip().lower()
+    mapping = {
+        "lido": "lido",
+        "read": "lido",
+        "resolvido": "resolvido",
+        "resolved": "resolvido",
+        "arquivado": "arquivado",
+        "archived": "arquivado",
+        "pendente": "pendente",
+        "pending": "pendente",
+    }
+    return mapping.get(raw, raw or "pendente")
+
+
+def alert_open_query() -> dict[str, Any]:
+    return {
+        "$and": [
+            {"status": {"$nin": ["resolvido", "resolved", "arquivado", "archived"]}},
+            {"resolvido": {"$ne": True}},
+        ]
+    }
+
+
+def normalize_alert_document(document: dict[str, Any]) -> dict[str, Any]:
+    serialized = serialize(document)
+    payload = serialized.get("data") if isinstance(serialized.get("data"), dict) else {}
+
+    prioridade = normalize_alert_priority(
+        serialized.get("prioridade")
+        or payload.get("prioridade")
+        or serialized.get("nivel")
+        or payload.get("nivel")
+    )
+    status = normalize_alert_status(
+        serialized.get("status")
+        or payload.get("status")
+        or ("resolvido" if serialized.get("resolvido") or payload.get("resolvido") else "pendente")
+    )
+
+    resolved = bool(serialized.get("resolvido") or payload.get("resolvido") or status in {"resolvido", "arquivado"})
+    read = bool(serialized.get("lido") or payload.get("lido") or status == "lido")
+
+    created_at = (
+        serialized.get("created_at")
+        or payload.get("created_at")
+        or serialized.get("createdAt")
+        or payload.get("createdAt")
+        or serialized.get("timestamp")
+        or payload.get("timestamp")
+    )
+
+    normalized = dict(serialized)
+    normalized.update(
+        {
+            "id": serialized.get("id") or serialized.get("_id"),
+            "titulo": serialized.get("titulo") or payload.get("titulo") or serialized.get("mensagem") or payload.get("mensagem") or "Alerta",
+            "descricao": serialized.get("descricao") or payload.get("descricao") or serialized.get("mensagem") or payload.get("mensagem") or "",
+            "prioridade": prioridade,
+            "status": status,
+            "lido": read,
+            "resolvido": resolved,
+            "data": created_at,
+            "payload": payload if payload else serialized.get("data") if not isinstance(serialized.get("data"), dict) else {},
+        }
+    )
+    return normalized
+
+
 def list_collection(collection_name: str, limit: int = 100) -> list[dict[str, Any]]:
     try:
         return serialize(list(db[collection_name].find({}).limit(limit)))
+    except Exception:
+        return []
+
+
+def list_alerts(limit: int = 100) -> list[dict[str, Any]]:
+    try:
+        items = list(db["alertas"].find({}).limit(limit))
+        return [normalize_alert_document(item) for item in items]
     except Exception:
         return []
 
@@ -265,11 +359,17 @@ def dashboard():
     ocr_erros = safe_count("ocr_documentos", status_not_in(success_statuses))
     obrigacoes_pendentes = safe_count("obrigacoes", {"status": "pendente"})
     obrigacoes_entregues = safe_count("obrigacoes", status_in(delivered_statuses))
-    alertas_criticos = safe_count("alertas", {"prioridade": "alta", "resolvido": {"$ne": True}})
+    alertas_criticos = safe_count(
+        "alertas",
+        {
+            "prioridade": {"$in": ["critica", "alta"]},
+            **alert_open_query(),
+        },
+    )
     alertas_por_criticidade = {
         "alta": alertas_criticos,
-        "media": safe_count("alertas", {"prioridade": "media", "resolvido": {"$ne": True}}),
-        "baixa": safe_count("alertas", {"prioridade": "baixa", "resolvido": {"$ne": True}}),
+        "media": safe_count("alertas", {"prioridade": "media", **alert_open_query()}),
+        "baixa": safe_count("alertas", {"prioridade": "baixa", **alert_open_query()}),
     }
 
     proximos_vencimentos = list(
@@ -526,7 +626,8 @@ def relatorios():
 
 @app.get("/api/alertas")
 def listar_alertas():
-    return collection_response("alertas", "alertas")
+    data = list_alerts()
+    return envelope(data, total=safe_count("alertas"), alertas=data)
 
 
 @app.put("/api/alertas/{item_id}/lido")

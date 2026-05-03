@@ -13,6 +13,7 @@ import {
   TrendingUp
 } from 'lucide-react';
 import { api } from '@/context/AuthContext';
+import { countCriticalAlertas, normalizeAlertas } from '@/lib/alertas';
 
 const toArray = (value) => {
   if (Array.isArray(value)) return value;
@@ -100,7 +101,7 @@ const Dashboard = () => {
 
       setDashboard(dashboardRes.data || {});
       setOcrStats(ocrRes.data || {});
-      setAlertas(toArray(alertasRes.data));
+      setAlertas(normalizeAlertas(toArray(alertasRes.data)));
       setObrigacoes(toArray(obrigacoesRes.data));
       setDocumentos(toArray(documentosRes.data));
       setEmpresas(toArray(empresasRes.data));
@@ -124,7 +125,7 @@ const Dashboard = () => {
     const obrigacoesPendentes =
       metricValue(dashboard.obrigacoes_pendentes, obrigacoes.filter((obrigacao) => isStatus(obrigacao, ['pendente'])).length);
     const alertasCriticos =
-      metricValue(dashboard.alertas_criticos, alertas.filter((alerta) => String(alerta.prioridade || '').toLowerCase() === 'alta' && !alerta.resolvido).length);
+      metricValue(dashboard.alertas_criticos, countCriticalAlertas(alertas));
 
     return {
       empresasAtivas,

@@ -11,6 +11,12 @@ import {
   Check
 } from 'lucide-react';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
+import {
+  countCriticalAlertas,
+  isResolvedAlert,
+  isUnreadAlert,
+  normalizeAlertas,
+} from '@/lib/alertas';
 
 const Alertas = () => {
   const [alertas, setAlertas] = useState([]);
@@ -20,17 +26,7 @@ const Alertas = () => {
       try {
         const response = await api.get('/alertas/');
         const items = Array.isArray(response.data) ? response.data : [];
-        setAlertas(items.map((item) => ({
-          id: item.id,
-          tipo: item.tipo || item.data?.tipo || 'sistema',
-          prioridade: item.prioridade || item.data?.prioridade || 'normal',
-          titulo: item.titulo || item.data?.titulo || 'Alerta',
-          descricao: item.descricao || item.data?.descricao || '',
-          empresa: item.empresa || item.data?.empresa || null,
-          tempo: item.tempo || item.data?.tempo || '',
-          lido: Boolean(item.lido || item.data?.lido),
-          resolvido: Boolean(item.resolvido || item.data?.resolvido),
-        })));
+        setAlertas(normalizeAlertas(items));
       } catch (error) {
         console.error('Erro ao carregar alertas:', error);
         setAlertas([]);
@@ -67,10 +63,10 @@ const Alertas = () => {
     setAlertas(alertas.map(a => a.id === id ? { ...a, resolvido: true, lido: true } : a));
   };
 
-  const alertasNaoLidos = alertas.filter(a => !a.lido && !a.resolvido);
-  const alertasPendentes = alertas.filter(a => !a.resolvido);
-  const alertasResolvidos = alertas.filter(a => a.resolvido);
-  const alertasCriticos = alertas.filter(a => a.prioridade === 'critica' && !a.resolvido);
+  const alertasNaoLidos = alertas.filter(isUnreadAlert);
+  const alertasPendentes = alertas.filter(a => !isResolvedAlert(a));
+  const alertasResolvidos = alertas.filter(isResolvedAlert);
+  const alertasCriticos = countCriticalAlertas(alertas);
 
   const AlertaCard = ({ alerta }) => {
     const config = getPrioridadeConfig(alerta.prioridade);
@@ -143,7 +139,7 @@ const Alertas = () => {
           <CardContent className="p-4 flex items-center justify-between">
             <div>
               <p className="text-sm text-red-600">Críticos</p>
-              <p className="text-2xl font-bold text-red-700">{alertasCriticos.length}</p>
+              <p className="text-2xl font-bold text-red-700">{alertasCriticos}</p>
             </div>
             <AlertTriangle className="h-8 w-8 text-red-500" />
           </CardContent>
