@@ -47,7 +47,7 @@ const Certidoes = () => {
   useEffect(() => {
     const carregarCertidoes = async () => {
       try {
-        const response = await api.get('/certidoes/');
+        const response = await api.get('/certidoes');
         const items = Array.isArray(response.data) ? response.data : [];
         setCertidoes(items.map((item) => ({
           id: item.id,

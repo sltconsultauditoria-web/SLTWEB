@@ -18,7 +18,7 @@ const Relatorios = () => {
   const fetchRelatorios = async () => {
     setLoading(true);
     try {
-      const res = await api.get('/relatorios/');
+      const res = await api.get('/relatorios');
       setRelatorios(Array.isArray(res.data) ? res.data : res.data?.relatorios || []);
     } catch (err) {
       setRelatorios([]);

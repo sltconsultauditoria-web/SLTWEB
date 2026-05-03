@@ -12,7 +12,7 @@ function NotificationBell() {
 
     const carregarAlertas = async () => {
       try {
-        const response = await api.get("/alertas/");
+        const response = await api.get("/alertas");
         if (!mounted) return;
         const items = normalizeAlertas(Array.isArray(response.data) ? response.data : []);
         setCount(countBadgeAlertas(items));

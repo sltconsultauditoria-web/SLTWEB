@@ -41,8 +41,8 @@ const Guias = () => {
     const carregarDados = async () => {
       try {
         const [empresasResponse, guiasResponse] = await Promise.all([
-          api.get('/empresas/'),
-          api.get('/guias/'),
+          api.get('/empresas'),
+          api.get('/guias'),
         ]);
         const empresasData = Array.isArray(empresasResponse.data) ? empresasResponse.data : [];
         setEmpresas(empresasData.map((empresa) => ({

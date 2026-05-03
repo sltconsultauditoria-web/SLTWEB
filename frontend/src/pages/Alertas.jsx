@@ -24,7 +24,7 @@ const Alertas = () => {
   useEffect(() => {
     const carregarAlertas = async () => {
       try {
-        const response = await api.get('/alertas/');
+        const response = await api.get('/alertas');
         const items = Array.isArray(response.data) ? response.data : [];
         setAlertas(normalizeAlertas(items));
       } catch (error) {

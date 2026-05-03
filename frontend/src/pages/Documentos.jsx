@@ -23,7 +23,7 @@ const Documentos = () => {
   useEffect(() => {
     const carregarDocumentos = async () => {
       try {
-        const response = await api.get('/documentos/');
+        const response = await api.get('/documentos');
         const items = Array.isArray(response.data) ? response.data : [];
         setDocumentos(items.map((item) => ({
           id: item.id,
@@ -81,7 +81,7 @@ const Documentos = () => {
             created_at: new Date().toISOString(),
           },
         };
-        const response = await api.post('/documentos/', payload);
+        const response = await api.post('/documentos', payload);
         const item = response.data;
         setDocumentos((prev) => [{
           id: item.id,

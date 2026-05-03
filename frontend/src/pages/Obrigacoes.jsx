@@ -41,7 +41,7 @@ const Obrigacoes = () => {
   useEffect(() => {
     const carregarObrigacoes = async () => {
       try {
-        const response = await api.get('/obrigacoes/');
+        const response = await api.get('/obrigacoes');
         const items = Array.isArray(response.data) ? response.data : [];
         setObrigacoes(items.map((item) => {
           const data = item.data || item;

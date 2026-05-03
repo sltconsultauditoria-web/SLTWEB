@@ -7,6 +7,7 @@ from fastapi import FastAPI, File, Header, HTTPException, UploadFile, status
 from fastapi.middleware.cors import CORSMiddleware
 from pymongo import MongoClient
 
+from backend.engines.fiscal_engine import FiscalEngine
 from backend.core.security import create_access_token, decode_access_token
 
 app = FastAPI(title="CONSULTSLT ENTERPRISE")
@@ -33,6 +34,7 @@ OCR_TIPOS_SUPORTADOS = [
 ]
 OCR_CONTENT_TYPES = {content_type for tipo in OCR_TIPOS_SUPORTADOS for content_type in tipo["content_types"]}
 OCR_EXTENSOES = {extensao for tipo in OCR_TIPOS_SUPORTADOS for extensao in tipo["extensoes"]}
+fiscal_engine = FiscalEngine()
 
 
 def now() -> str:
@@ -156,6 +158,13 @@ def alert_open_query() -> dict[str, Any]:
     }
 
 
+def request_data(payload: dict[str, Any]) -> dict[str, Any]:
+    data = payload.get("data")
+    if isinstance(data, dict):
+        return data
+    return dict(payload)
+
+
 def normalize_alert_document(document: dict[str, Any]) -> dict[str, Any]:
     serialized = serialize(document)
     payload = serialized.get("data") if isinstance(serialized.get("data"), dict) else {}
@@ -217,10 +226,57 @@ def list_alerts(limit: int = 100) -> list[dict[str, Any]]:
 
 
 def create_item(collection_name: str, payload: dict[str, Any]) -> dict[str, Any]:
-    document = payload.get("data") if isinstance(payload.get("data"), dict) else payload
+    document = request_data(payload)
     document = {**document, "created_at": document.get("created_at") or now()}
     result = db[collection_name].insert_one(document)
     document["id"] = str(result.inserted_id)
+    return serialize(document)
+
+
+def delete_document(collection_name: str, item_id: str) -> dict[str, Any]:
+    query = object_query(item_id)
+    result = db[collection_name].delete_one(query)
+    if result.deleted_count == 0:
+        raise HTTPException(status_code=404, detail="Registro nao encontrado")
+    return {"id": item_id, "deleted": True}
+
+
+def normalize_fiscal_payload(payload: dict[str, Any]) -> dict[str, Any]:
+    data = request_data(payload)
+    return {
+        "cnpj": str(data.get("cnpj") or data.get("documento") or "").strip(),
+        "periodo": str(data.get("periodo") or data.get("periodo_referencia") or data.get("competencia") or "").strip(),
+        "receita_bruta_12m": float(data.get("receita_bruta_12m") or data.get("rbt12") or data.get("receita12m") or 0),
+        "receita_mensal": float(data.get("receita_mensal") or data.get("receita") or 0),
+        "folha_salarios_12m": float(data.get("folha_salarios_12m") or data.get("folha") or 0),
+        "anexo": str(data.get("anexo") or "anexo_iii").strip() or "anexo_iii",
+        "empresa_id": data.get("empresa_id"),
+    }
+
+
+def persist_fiscal_result(record_type: str, payload: dict[str, Any], result: dict[str, Any]) -> dict[str, Any]:
+    document = {
+        "id": str(ObjectId()),
+        "tipo": record_type,
+        "cnpj": payload.get("cnpj"),
+        "periodo_referencia": payload.get("periodo"),
+        "created_at": now(),
+        "resultado": result,
+        **payload,
+        **result,
+    }
+    try:
+        db["fiscal_data"].update_one(
+            {
+                "cnpj": payload.get("cnpj"),
+                "periodo_referencia": payload.get("periodo"),
+                "tipo": record_type,
+            },
+            {"$set": document},
+            upsert=True,
+        )
+    except Exception:
+        pass
     return serialize(document)
 
 
@@ -456,6 +512,11 @@ def criar_documento(payload: dict):
     return envelope(data, **data)
 
 
+@app.delete("/api/documentos/{item_id}")
+def excluir_documento(item_id: str):
+    return envelope(delete_document("documentos", item_id))
+
+
 @app.post("/api/ocr/upload")
 async def upload_ocr(file: UploadFile = File(...)):
     filename = file.filename or ""
@@ -650,6 +711,42 @@ def fiscal_obrigacoes():
 def fiscal_guia(payload: dict):
     data = create_item("guias", payload)
     return envelope(data, **data)
+
+
+@app.post("/api/fiscal/calcular/das")
+def calcular_das(payload: dict):
+    data = normalize_fiscal_payload(payload)
+    if not data["cnpj"]:
+        raise HTTPException(status_code=400, detail="CNPJ obrigatorio")
+    if data["receita_bruta_12m"] < 0 or data["receita_mensal"] < 0:
+        raise HTTPException(status_code=400, detail="Valores fiscais invalidos")
+
+    resultado = fiscal_engine.calcular_simples_nacional(
+        receita_bruta_12m=data["receita_bruta_12m"],
+        receita_mensal=data["receita_mensal"],
+        anexo=data["anexo"],
+        fator_r=None,
+    )
+    if resultado.get("status") == "SUCESSO":
+        resultado = persist_fiscal_result("simples_nacional", data, resultado)
+    return envelope(resultado, total=1, **resultado)
+
+
+@app.post("/api/fiscal/calcular/fator-r")
+def calcular_fator_r(payload: dict):
+    data = normalize_fiscal_payload(payload)
+    if not data["cnpj"]:
+        raise HTTPException(status_code=400, detail="CNPJ obrigatorio")
+    if data["receita_bruta_12m"] <= 0:
+        raise HTTPException(status_code=400, detail="Receita bruta invalida")
+
+    resultado = fiscal_engine.calcular_fator_r(
+        folha_salarios_12m=data["folha_salarios_12m"],
+        receita_bruta_12m=data["receita_bruta_12m"],
+    )
+    if resultado.get("status") == "SUCESSO":
+        resultado = persist_fiscal_result("fator_r", data, resultado)
+    return envelope(resultado, total=1, **resultado)
 
 
 @app.post("/api/auth/forgot-password")

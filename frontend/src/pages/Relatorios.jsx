@@ -15,8 +15,8 @@ const Relatorios = () => {
     const carregarRelatorios = async () => {
       try {
         const [disponiveis, recentes] = await Promise.all([
-          api.get('/tipos_relatorios/'),
-          api.get('/relatorios/'),
+          api.get('/tipos_relatorios'),
+          api.get('/relatorios'),
         ]);
         const tipos = Array.isArray(disponiveis.data) ? disponiveis.data : [];
         const gerados = Array.isArray(recentes.data) ? recentes.data : [];

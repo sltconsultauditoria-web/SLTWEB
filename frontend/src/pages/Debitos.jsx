@@ -38,7 +38,7 @@ const Debitos = () => {
   useEffect(() => {
     const carregarEmpresas = async () => {
       try {
-        const response = await api.get('/empresas/');
+        const response = await api.get('/empresas');
         const items = Array.isArray(response.data) ? response.data : [];
         setEmpresas(items.map((empresa) => ({
           id: empresa.id,
@@ -57,7 +57,7 @@ const Debitos = () => {
     if (!selectedEmpresa) return;
     setConsultando(true);
     try {
-      const response = await api.get('/debitos/');
+      const response = await api.get('/debitos');
       const items = Array.isArray(response.data) ? response.data : [];
       const filtrados = items.filter((item) => {
         const empresaId = item.empresa_id || item.data?.empresa_id;

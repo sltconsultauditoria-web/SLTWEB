@@ -40,7 +40,7 @@ const Auditoria = () => {
   const carregarDados = useCallback(async () => {
     try {
       const [auditoriasRes, estatisticasRes] = await Promise.all([
-        api.get('/auditoria/'),
+        api.get('/auditoria'),
         api.get('/auditoria/estatisticas')
       ]);
       setAuditorias(Array.isArray(auditoriasRes.data) ? auditoriasRes.data : auditoriasRes.data.auditorias || []);
