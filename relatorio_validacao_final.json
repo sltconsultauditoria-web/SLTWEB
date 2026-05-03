@@ -1,0 +1,39 @@
+{
+    "data": "2026-04-30 15:22:12.201445",
+    "checks": {
+        "Dashboard sem /api/api": {
+            "ok": true,
+            "detalhe": ""
+        },
+        "/health": {
+            "ok": true,
+            "detalhe": "-> 200"
+        },
+        "/api/dashboard": {
+            "ok": true,
+            "detalhe": "-> 200"
+        },
+        "/api/alertas": {
+            "ok": false,
+            "detalhe": "-> 500"
+        },
+        "/api/obrigacoes": {
+            "ok": false,
+            "detalhe": "-> 500"
+        },
+        "Login usuários padrão": {
+            "ok": true,
+            "detalhe": "3/3 funcionando"
+        },
+        "Frontend online": {
+            "ok": true,
+            "detalhe": "-> 200"
+        }
+    },
+    "score": 71,
+    "erros": [
+        "/api/alertas retornou 500",
+        "/api/obrigacoes retornou 500"
+    ],
+    "status": "AINDA REQUER CORREÇÕES"
+}

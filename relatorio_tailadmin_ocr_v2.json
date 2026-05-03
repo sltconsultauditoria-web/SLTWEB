@@ -1,0 +1,39 @@
+{
+    "data": "2026-05-01 10:37:06.025651",
+    "checks": {
+        "_api_ocr_documentos": {
+            "ok": false,
+            "detalhe": "404"
+        },
+        "_api_ocr_estatisticas": {
+            "ok": false,
+            "detalhe": "404"
+        },
+        "_api_ocr_tipos-suportados": {
+            "ok": false,
+            "detalhe": "404"
+        },
+        "package_json": {
+            "ok": true,
+            "detalhe": "C:\\Users\\admin-local\\ServerApp\\consultSLTweb\\frontend"
+        },
+        "src_folder": {
+            "ok": true,
+            "detalhe": "C:\\Users\\admin-local\\ServerApp\\consultSLTweb\\backend\\src"
+        },
+        "tailwind_config": {
+            "ok": true,
+            "detalhe": "C:\\Users\\admin-local\\ServerApp\\consultSLTweb\\_UPGRADE_BACKUPS\\upgrade_backup_20260429_150120\\frontend\\node_modules\\tailwindcss\\stubs\\tailwind.config.js"
+        },
+        "postcss_config": {
+            "ok": true,
+            "detalhe": "C:\\Users\\admin-local\\ServerApp\\consultSLTweb\\_UPGRADE_BACKUPS\\upgrade_backup_20260429_150120\\frontend\\node_modules\\tailwindcss\\stubs\\postcss.config.js"
+        },
+        "tailadmin_detectado": {
+            "ok": true,
+            "detalhe": "C:\\Users\\admin-local\\ServerApp\\consultSLTweb\\_UPGRADE_BACKUPS\\upgrade_backup_20260429_150120\\frontend\\src\\services\\api.js"
+        }
+    },
+    "score": 16260,
+    "status": "SISTEMA ATUALIZADO"
+}

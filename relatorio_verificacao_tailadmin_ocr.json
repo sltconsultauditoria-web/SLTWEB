@@ -1,0 +1,43 @@
+{
+    "data_execucao": "2026-04-30 17:04:31.948055",
+    "checks": {
+        "ocr_documentos_api": {
+            "ok": false,
+            "detalhe": "status 500"
+        },
+        "ocr_estatisticas_api": {
+            "ok": true,
+            "detalhe": "status 200"
+        },
+        "ocr_tipos_api": {
+            "ok": false,
+            "detalhe": "status 404"
+        },
+        "arquivo_src/App.jsx": {
+            "ok": false,
+            "detalhe": "não encontrado"
+        },
+        "arquivo_src/App.js": {
+            "ok": false,
+            "detalhe": "não encontrado"
+        },
+        "arquivo_tailwind.config.js": {
+            "ok": false,
+            "detalhe": "não encontrado"
+        },
+        "arquivo_postcss.config.js": {
+            "ok": false,
+            "detalhe": "não encontrado"
+        },
+        "arquivo_package.json": {
+            "ok": false,
+            "detalhe": "não encontrado"
+        },
+        "tailadmin_layout": {
+            "ok": true,
+            "detalhe": "arquivos encontrados"
+        }
+    },
+    "score": 20,
+    "status": "REQUER AJUSTES"
+}

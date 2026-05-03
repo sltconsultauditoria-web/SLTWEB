@@ -1,0 +1,33 @@
+{
+    "data": "2026-04-29 14:46:55.440949",
+    "estrutura": {
+        "frontend": true,
+        "backend": true
+    },
+    "frontend": {
+        "react": true,
+        "tailwind": true,
+        "axios": true,
+        "router": true,
+        "paginas": 91
+    },
+    "backend": {
+        "fastapi": true,
+        "mongodb": true,
+        "jwt": true,
+        "rotas": 2
+    },
+    "mongodb": {},
+    "score": {
+        "tailadmin": 100,
+        "ocr": 75,
+        "geral": 87,
+        "status": "PRONTA PARA UPGRADE"
+    },
+    "acoes_recomendadas": [
+        "Criar endpoint upload FastAPI",
+        "Criar collection mongodb: ocr_documentos",
+        "Instalar pytesseract + pdf2image",
+        "Aplicar TailAdmin sem alterar rotas existentes"
+    ]
+}

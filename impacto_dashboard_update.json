@@ -1,0 +1,32 @@
+{
+    "data": "2026-05-01 11:39:34.131592",
+    "estrutura": {
+        "BASE_DIR": true,
+        "BACKEND": true,
+        "FRONTEND": true,
+        "SRC_PAGES": true,
+        "SRC_COMPONENTS": true
+    },
+    "arquivos_criticos": {
+        "main_enterprise.py": true,
+        "Dashboard.jsx": true,
+        "api.js": true,
+        ".env": true
+    },
+    "apis": {
+        "health": 200,
+        "docs": 200,
+        "dashboard": 200,
+        "empresas": 200,
+        "guias": 200,
+        "documentos": 200,
+        "alertas": 500,
+        "obrigacoes": 500,
+        "frontend_home": 200,
+        "dashboard_page": 200
+    },
+    "frontend": {},
+    "impacto": {},
+    "risco": "MÉDIO",
+    "recomendacao": "\n⚠️ Corrigir APIs quebradas antes do upgrade.\nRecomendado revisar backend e collections Mongo.\n"
+}

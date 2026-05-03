@@ -1,0 +1,21 @@
+{
+    "data": "2026-04-30 15:17:31.857674",
+    "upgrade_detectado": {
+        "layout_enterprise": false,
+        "dashboard_premium": true,
+        "ocr_page": true,
+        "ocr_backend": true,
+        "main_backend": true,
+        "api_service": true
+    },
+    "erros": [
+        "/api/alertas retornou 500",
+        "/api/obrigacoes retornou 500",
+        "Dashboard.jsx usa /api/dashboard hardcoded"
+    ],
+    "score": 85,
+    "acoes": [
+        "Corrigir Dashboard.jsx para usar api.get('/dashboard')",
+        "Corrigir exceções internas dos endpoints"
+    ]
+}

@@ -1,0 +1,45 @@
+# Environment and secrets
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+id_rsa*
+*secret*
+*secrets*
+
+# Dependencies
+node_modules/
+frontend/node_modules/
+.venv/
+venv/
+backend/venv/
+
+# Python caches
+__pycache__/
+*.py[cod]
+*$py.class
+.pytest_cache/
+.mypy_cache/
+
+# Frontend caches/build artifacts
+frontend/.cache/
+frontend/build/
+frontend/dist/
+dist/
+build/
+
+# Local backups and generated reports
+_VERSION_BACKUP/
+_BACKUPS/
+_HOTFIX_BACKUP/
+_PATCH_BACKUP/
+_UPGRADE_BACKUPS/
+backup_precheck/
+backup_pre_*/
+*.zip
+
+# OS/editor noise
+.DS_Store
+Thumbs.db
+.vscode/

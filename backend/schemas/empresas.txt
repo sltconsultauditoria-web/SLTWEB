@@ -1,0 +1,21 @@
+from pydantic import BaseModel, EmailStr
+from typing import Optional
+
+class Endereco(BaseModel):
+    logradouro: Optional[str]
+    numero: Optional[str]
+    cidade: Optional[str]
+    estado: Optional[str]
+    cep: Optional[str]
+
+class Contato(BaseModel):
+    email: Optional[EmailStr]
+    telefone: Optional[str]
+
+class EmpresaCreate(BaseModel):
+    cnpj: str
+    razaoSocial: str
+    nomeFantasia: Optional[str]
+    regimeTributario: str
+    endereco: Optional[Endereco]
+    contato: Optional[Contato]

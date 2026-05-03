@@ -1,0 +1,23 @@
+{
+    "data": "2026-04-30 15:28:42.877553",
+    "checks": {
+        "/health": {
+            "ok": true,
+            "status": 200
+        },
+        "/api/dashboard": {
+            "ok": true,
+            "status": 200
+        },
+        "/api/alertas": {
+            "ok": false,
+            "status": 500
+        },
+        "/api/obrigacoes": {
+            "ok": false,
+            "status": 500
+        }
+    },
+    "score": 50,
+    "status": "AINDA REQUER AJUSTES"
+}
