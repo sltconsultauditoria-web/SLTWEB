@@ -1,5 +1,7 @@
-from datetime import date, datetime
+from datetime import date, datetime, timedelta
 import os
+import threading
+import time
 from typing import Any
 
 from bson import ObjectId
@@ -35,6 +37,14 @@ OCR_TIPOS_SUPORTADOS = [
 OCR_CONTENT_TYPES = {content_type for tipo in OCR_TIPOS_SUPORTADOS for content_type in tipo["content_types"]}
 OCR_EXTENSOES = {extensao for tipo in OCR_TIPOS_SUPORTADOS for extensao in tipo["extensoes"]}
 fiscal_engine = FiscalEngine()
+PIPELINE_RUNTIME_STATE: dict[str, Any] = {
+    "running": False,
+    "last_run_at": None,
+    "last_status": "idle",
+    "last_error": None,
+    "last_summary": {},
+}
+PIPELINE_SCHEDULER_STARTED = False
 
 
 def now() -> str:
@@ -223,6 +233,486 @@ def list_alerts(limit: int = 100) -> list[dict[str, Any]]:
         return [normalize_alert_document(item) for item in items]
     except Exception:
         return []
+
+
+def parse_date_like(value: Any) -> date | None:
+    if isinstance(value, datetime):
+        return value.date()
+    if isinstance(value, date):
+        return value
+    if not isinstance(value, str) or not value.strip():
+        return None
+
+    clean_value = value.strip()
+    for fmt in ("%Y-%m-%d", "%Y-%m-%dT%H:%M:%S", "%d/%m/%Y", "%d/%m/%Y %H:%M:%S"):
+        try:
+            return datetime.strptime(clean_value[:19], fmt).date()
+        except ValueError:
+            pass
+
+    try:
+        return datetime.fromisoformat(clean_value.replace("Z", "+00:00")).date()
+    except ValueError:
+        return None
+
+
+def parse_date_from_document(document: dict[str, Any], keys: list[str]) -> date | None:
+    for key in keys:
+        parsed = parse_date_like(document.get(key))
+        if parsed:
+            return parsed
+    return None
+
+
+def normalize_severidade(value: Any) -> str:
+    raw = str(value or "").strip().lower()
+    mapping = {
+        "critico": "critica",
+        "critica": "critica",
+        "critical": "critica",
+        "alta": "alta",
+        "high": "alta",
+        "media": "media",
+        "média": "media",
+        "medium": "media",
+        "baixa": "baixa",
+        "low": "baixa",
+    }
+    return mapping.get(raw, raw or "media")
+
+
+def normalize_event_status(value: Any) -> str:
+    raw = str(value or "").strip().lower()
+    mapping = {
+        "novo": "novo",
+        "new": "novo",
+        "processado": "processado",
+        "processed": "processado",
+        "resolvido": "resolvido",
+        "resolved": "resolvido",
+    }
+    return mapping.get(raw, raw or "novo")
+
+
+def normalize_pipeline_event(document: dict[str, Any]) -> dict[str, Any]:
+    serialized = serialize(document)
+    payload = serialized.get("payload") if isinstance(serialized.get("payload"), dict) else {}
+    event = dict(serialized)
+    event.update(
+        {
+            "id": serialized.get("id") or serialized.get("_id"),
+            "origem": str(serialized.get("origem") or payload.get("origem") or "usuario").strip().lower(),
+            "tipo": str(serialized.get("tipo") or payload.get("tipo") or "evento").strip().lower(),
+            "empresa_id": serialized.get("empresa_id") or payload.get("empresa_id"),
+            "severidade": normalize_severidade(
+                serialized.get("severidade") or payload.get("severidade") or serialized.get("prioridade") or payload.get("prioridade")
+            ),
+            "status": normalize_event_status(serialized.get("status") or payload.get("status")),
+            "payload": payload if payload else serialized.get("payload") or {},
+            "created_at": serialized.get("created_at") or payload.get("created_at") or serialized.get("timestamp"),
+        }
+    )
+    return event
+
+
+def list_pipeline_events(limit: int = 100, status_filter: str | None = None) -> list[dict[str, Any]]:
+    try:
+        query: dict[str, Any] = {}
+        if status_filter:
+            query["status"] = normalize_event_status(status_filter)
+        items = list(db["pipeline_events"].find(query).sort("created_at", -1).limit(limit))
+        return [normalize_pipeline_event(item) for item in items]
+    except Exception:
+        return []
+
+
+def event_dedupe_key(event: dict[str, Any]) -> str:
+    empresa_id = str(event.get("empresa_id") or "").strip()
+    origem = str(event.get("origem") or "").strip().lower()
+    tipo = str(event.get("tipo") or "").strip().lower()
+    referencia = str(event.get("referencia") or event.get("chave") or event.get("documento_id") or "").strip()
+    return "|".join([origem, tipo, empresa_id, referencia])
+
+
+def store_pipeline_event(payload: dict[str, Any], upsert: bool = False) -> dict[str, Any]:
+    document = payload.get("data") if isinstance(payload.get("data"), dict) else dict(payload)
+    document = dict(document)
+    document["origem"] = str(document.get("origem") or "usuario").strip().lower()
+    document["tipo"] = str(document.get("tipo") or "evento").strip().lower()
+    document["severidade"] = normalize_severidade(document.get("severidade") or document.get("prioridade"))
+    document["status"] = normalize_event_status(document.get("status"))
+    document["created_at"] = document.get("created_at") or now()
+    document["payload"] = document.get("payload") if isinstance(document.get("payload"), dict) else request_data(payload)
+    document["dedupe_key"] = document.get("dedupe_key") or event_dedupe_key(document)
+
+    if upsert:
+        result = db["pipeline_events"].update_one(
+            {"dedupe_key": document["dedupe_key"]},
+            {"$set": document},
+            upsert=True,
+        )
+        if getattr(result, "upserted_id", None):
+            document["_id"] = result.upserted_id
+        else:
+            stored = db["pipeline_events"].find_one({"dedupe_key": document["dedupe_key"]})
+            if stored:
+                document["_id"] = stored.get("_id")
+    else:
+        result = db["pipeline_events"].insert_one(document)
+        document["_id"] = result.inserted_id
+
+    document["id"] = str(document.get("_id") or document.get("id") or ObjectId())
+    return normalize_pipeline_event(document)
+
+
+def store_pipeline_log(payload: dict[str, Any]) -> dict[str, Any]:
+    document = payload.get("data") if isinstance(payload.get("data"), dict) else dict(payload)
+    document = {
+        **document,
+        "created_at": document.get("created_at") or now(),
+        "status": document.get("status") or "info",
+    }
+    result = db["fiscal_pipeline_logs"].insert_one(document)
+    document["id"] = str(result.inserted_id)
+    return serialize(document)
+
+
+def resolve_alert_by_event(event_id: str, severity: str, title: str, description: str) -> dict[str, Any] | None:
+    if severity not in {"alta", "critica"}:
+        return None
+
+    existing = db["alertas"].find_one({"evento_id": event_id})
+    alert_document = {
+        "titulo": title,
+        "descricao": description,
+        "prioridade": severity,
+        "status": "pendente",
+        "lido": False,
+        "resolvido": False,
+        "evento_id": event_id,
+        "created_at": now(),
+    }
+
+    if existing:
+        db["alertas"].update_one(
+            {"evento_id": event_id},
+            {"$set": alert_document},
+        )
+        updated = db["alertas"].find_one({"evento_id": event_id}) or alert_document
+        return normalize_alert_document(updated)
+
+    result = db["alertas"].insert_one(alert_document)
+    alert_document["_id"] = result.inserted_id
+    return normalize_alert_document(alert_document)
+
+
+def resolve_alert_for_event(event_id: str) -> None:
+    alert = db["alertas"].find_one({"evento_id": event_id})
+    if not alert:
+        return
+    db["alertas"].update_one(
+        {"evento_id": event_id},
+        {"$set": {"status": "resolvido", "resolvido": True, "lido": True, "updated_at": now()}},
+    )
+
+
+def due_severity(dias_para_vencer: int | None) -> str:
+    if dias_para_vencer is None:
+        return "media"
+    if dias_para_vencer < 0:
+        return "critica"
+    if dias_para_vencer <= 3:
+        return "critica"
+    if dias_para_vencer <= 7:
+        return "alta"
+    if dias_para_vencer <= 15:
+        return "media"
+    return "baixa"
+
+
+def fiscal_health_score(summary: dict[str, int]) -> int:
+    score = 100
+    score -= min(summary.get("eventos_criticos", 0) * 10, 40)
+    score -= min(summary.get("eventos_altos", 0) * 5, 20)
+    score -= min(summary.get("obrigacoes_pendentes", 0) * 4, 20)
+    score -= min(summary.get("ocr_erros", 0) * 3, 10)
+    score -= min(summary.get("debitos_em_aberto", 0) * 5, 15)
+    return max(0, min(100, score))
+
+
+def build_pipeline_event(
+    *,
+    origem: str,
+    tipo: str,
+    empresa_id: Any = None,
+    severidade: str = "media",
+    titulo: str = "",
+    descricao: str = "",
+    payload: dict[str, Any] | None = None,
+    referencia: str | None = None,
+) -> dict[str, Any]:
+    document = {
+        "origem": origem,
+        "tipo": tipo,
+        "empresa_id": empresa_id,
+        "severidade": severidade,
+        "status": "novo",
+        "titulo": titulo or tipo.replace("_", " ").title(),
+        "descricao": descricao or titulo or tipo,
+        "payload": payload or {},
+        "referencia": referencia or (payload.get("referencia") if isinstance(payload, dict) else None),
+    }
+    if referencia:
+        document["referencia"] = referencia
+    return document
+
+
+def run_fiscal_pipeline_once() -> dict[str, Any]:
+    started_at = now()
+    summary = {
+        "started_at": started_at,
+        "finished_at": None,
+        "status": "running",
+        "obrigações_verificadas": 0,
+        "certidoes_verificadas": 0,
+        "debitos_verificados": 0,
+        "ocr_verificados": 0,
+        "eventos_gerados": 0,
+        "alertas_gerados": 0,
+        "eventos_criticos": 0,
+        "eventos_altos": 0,
+        "obrigacoes_pendentes": 0,
+        "ocr_erros": 0,
+        "debitos_em_aberto": 0,
+    }
+    logs: list[dict[str, Any]] = []
+    events_created: list[dict[str, Any]] = []
+    alertas_gerados = 0
+
+    def add_log(step: str, message: str, details: dict[str, Any] | None = None, status_value: str = "info") -> None:
+        logs.append(
+            store_pipeline_log(
+                {
+                    "pipeline": "fiscal",
+                    "step": step,
+                    "message": message,
+                    "status": status_value,
+                    "details": details or {},
+                    "created_at": now(),
+                }
+            )
+        )
+
+    add_log("start", "Pipeline fiscal iniciado", {"started_at": started_at}, "running")
+
+    try:
+        obrigacoes = list(db["obrigacoes"].find({}))
+        certidoes = list(db["certidoes"].find({}))
+        debitos = list(db["debitos"].find({}))
+        ocr_docs = list(db["ocr_documentos"].find({}))
+
+        today = datetime.now().date()
+
+        for obrigacao in obrigacoes:
+            summary["obrigações_verificadas"] += 1
+            parsed_vencimento = parse_date_from_document(obrigacao, ["vencimento", "data_vencimento", "data_venc", "prazo"])
+            dias_para_vencer = (parsed_vencimento - today).days if parsed_vencimento else None
+            status_obrigacao = str(obrigacao.get("status") or "").lower()
+            if status_obrigacao in {"pendente", "vencida", "atrasada"} or (dias_para_vencer is not None and dias_para_vencer <= 15):
+                severidade = due_severity(dias_para_vencer)
+                evento = build_pipeline_event(
+                    origem="fiscal",
+                    tipo="vencimento",
+                    empresa_id=obrigacao.get("empresa_id") or obrigacao.get("empresaId"),
+                    severidade=severidade,
+                    titulo=f"Obrigação com vencimento próximo: {obrigacao.get('titulo') or obrigacao.get('nome') or 'obrigação'}",
+                    descricao=f"Vencimento em {parsed_vencimento.isoformat() if parsed_vencimento else 'data não informada'}",
+                    payload={
+                        "origem": "fiscal",
+                        "tipo": "vencimento",
+                        "obrigacao": serialize(obrigacao),
+                        "dias_para_vencer": dias_para_vencer,
+                    },
+                    referencia=str(obrigacao.get("id") or obrigacao.get("_id") or obrigacao.get("numero") or obrigacao.get("titulo") or ""),
+                )
+                stored_event = store_pipeline_event(evento, upsert=True)
+                events_created.append(stored_event)
+                if severidade in {"alta", "critica"}:
+                    alert = resolve_alert_by_event(
+                        stored_event["id"],
+                        severidade,
+                        stored_event["titulo"],
+                        stored_event["descricao"],
+                    )
+                    if alert:
+                        alertas_gerados += 1
+                if severidade == "critica":
+                    summary["eventos_criticos"] += 1
+                elif severidade == "alta":
+                    summary["eventos_altos"] += 1
+
+        for certidao in certidoes:
+            summary["certidoes_verificadas"] += 1
+            parsed_validade = parse_date_from_document(certidao, ["data_validade", "validade", "vencimento", "data_vencimento"])
+            dias_para_vencer = (parsed_validade - today).days if parsed_validade else None
+            status_certidao = str(certidao.get("status") or "").lower()
+            if status_certidao in {"vencida", "expirada", "pendente"} or (dias_para_vencer is not None and dias_para_vencer <= 15):
+                severidade = due_severity(dias_para_vencer)
+                evento = build_pipeline_event(
+                    origem="fiscal",
+                    tipo="certidao",
+                    empresa_id=certidao.get("empresa_id") or certidao.get("empresaId"),
+                    severidade=severidade,
+                    titulo=f"Certidão vencendo: {certidao.get('tipo') or 'certidão'}",
+                    descricao=f"Validade em {parsed_validade.isoformat() if parsed_validade else 'data não informada'}",
+                    payload={
+                        "origem": "fiscal",
+                        "tipo": "certidao",
+                        "certidao": serialize(certidao),
+                        "dias_para_vencer": dias_para_vencer,
+                    },
+                    referencia=str(certidao.get("id") or certidao.get("_id") or certidao.get("numero") or certidao.get("tipo") or ""),
+                )
+                stored_event = store_pipeline_event(evento, upsert=True)
+                events_created.append(stored_event)
+                if severidade in {"alta", "critica"}:
+                    alert = resolve_alert_by_event(
+                        stored_event["id"],
+                        severidade,
+                        stored_event["titulo"],
+                        stored_event["descricao"],
+                    )
+                    if alert:
+                        alertas_gerados += 1
+                if severidade == "critica":
+                    summary["eventos_criticos"] += 1
+                elif severidade == "alta":
+                    summary["eventos_altos"] += 1
+
+        for debito in debitos:
+            summary["debitos_verificados"] += 1
+            status_debito = str(debito.get("status") or "").lower()
+            if status_debito in {"aberto", "pendente", "em aberto", "vencido"}:
+                evento = build_pipeline_event(
+                    origem="fiscal",
+                    tipo="debito",
+                    empresa_id=debito.get("empresa_id") or debito.get("empresaId"),
+                    severidade="alta" if status_debito != "vencido" else "critica",
+                    titulo=f"Débito em aberto para {debito.get('cnpj') or 'empresa'}",
+                    descricao="Débito fiscal identificado no monitoramento recorrente",
+                    payload={"origem": "fiscal", "tipo": "debito", "debito": serialize(debito)},
+                    referencia=str(debito.get("id") or debito.get("_id") or debito.get("cnpj") or ""),
+                )
+                stored_event = store_pipeline_event(evento, upsert=True)
+                events_created.append(stored_event)
+                if stored_event["severidade"] in {"alta", "critica"}:
+                    alert = resolve_alert_by_event(
+                        stored_event["id"],
+                        stored_event["severidade"],
+                        stored_event["titulo"],
+                        stored_event["descricao"],
+                    )
+                    if alert:
+                        alertas_gerados += 1
+                if stored_event["severidade"] == "critica":
+                    summary["eventos_criticos"] += 1
+                elif stored_event["severidade"] == "alta":
+                    summary["eventos_altos"] += 1
+                summary["debitos_em_aberto"] += 1
+
+        for documento in ocr_docs:
+            summary["ocr_verificados"] += 1
+            status_documento = str(documento.get("status") or "").lower()
+            if status_documento in {"erro", "error", "falha", "rejeitado", "invalidado"}:
+                evento = build_pipeline_event(
+                    origem="ocr",
+                    tipo="erro",
+                    empresa_id=documento.get("empresa_id") or documento.get("empresaId"),
+                    severidade="media",
+                    titulo=f"Erro de OCR em {documento.get('nome_arquivo') or 'documento'}",
+                    descricao="Documento com falha de processamento OCR",
+                    payload={"origem": "ocr", "tipo": "erro", "ocr_documento": serialize(documento)},
+                    referencia=str(documento.get("id") or documento.get("_id") or documento.get("nome_arquivo") or ""),
+                )
+                stored_event = store_pipeline_event(evento, upsert=True)
+                events_created.append(stored_event)
+                summary["ocr_erros"] += 1
+
+        summary["eventos_gerados"] = len(events_created)
+        summary["alertas_gerados"] = alertas_gerados
+        summary["status"] = "sucesso"
+        summary["finished_at"] = now()
+        summary["fiscal_health_score"] = fiscal_health_score(summary)
+        summary["alertas_relevantes"] = safe_count(
+            "alertas",
+            {
+                "prioridade": {"$in": ["critica", "alta"]},
+                **alert_open_query(),
+            },
+        )
+
+        add_log(
+            "complete",
+            "Pipeline fiscal concluído",
+            {
+                "summary": summary,
+                "events_created": summary["eventos_gerados"],
+                "alertas_gerados": summary["alertas_gerados"],
+            },
+            "success",
+        )
+
+        PIPELINE_RUNTIME_STATE.update(
+            {
+                "running": False,
+                "last_run_at": summary["finished_at"],
+                "last_status": summary["status"],
+                "last_error": None,
+                "last_summary": summary,
+            }
+        )
+        return {"summary": summary, "events": events_created, "logs": logs}
+    except Exception as exc:
+        summary["status"] = "error"
+        summary["finished_at"] = now()
+        summary["error"] = str(exc)
+        add_log("error", "Erro ao executar pipeline fiscal", {"error": str(exc)}, "error")
+        PIPELINE_RUNTIME_STATE.update(
+            {
+                "running": False,
+                "last_run_at": summary["finished_at"],
+                "last_status": summary["status"],
+                "last_error": str(exc),
+                "last_summary": summary,
+            }
+        )
+        raise
+
+
+def run_fiscal_pipeline_safe() -> dict[str, Any]:
+    if PIPELINE_RUNTIME_STATE.get("running"):
+        return {
+            "summary": {
+                "status": "running",
+                "message": "Pipeline ja em execucao",
+                "started_at": PIPELINE_RUNTIME_STATE.get("last_run_at"),
+            }
+        }
+
+    PIPELINE_RUNTIME_STATE["running"] = True
+    try:
+        return run_fiscal_pipeline_once()
+    finally:
+        PIPELINE_RUNTIME_STATE["running"] = False
+
+
+def pipeline_scheduler_loop(interval_minutes: int) -> None:
+    while True:
+        try:
+            run_fiscal_pipeline_safe()
+        except Exception:
+            pass
+        time.sleep(max(1, interval_minutes) * 60)
 
 
 def create_item(collection_name: str, payload: dict[str, Any]) -> dict[str, Any]:
@@ -422,6 +912,15 @@ def dashboard():
             **alert_open_query(),
         },
     )
+    eventos_novos = safe_count("pipeline_events", {"status": "novo"})
+    eventos_criticos = safe_count(
+        "pipeline_events",
+        {"severidade": {"$in": ["critica", "alta"]}, "status": {"$nin": ["resolvido"]}},
+    )
+    eventos_altos = safe_count(
+        "pipeline_events",
+        {"severidade": "alta", "status": {"$nin": ["resolvido"]}},
+    )
     alertas_por_criticidade = {
         "alta": alertas_criticos,
         "media": safe_count("alertas", {"prioridade": "media", **alert_open_query()}),
@@ -436,6 +935,22 @@ def dashboard():
     )
     documentos_recentes = list(db["documentos"].find({}, {"_id": 0}).sort("created_at", -1).limit(5))
     alertas_recentes = list(db["alertas"].find({}, {"_id": 0}).sort("created_at", -1).limit(5))
+    eventos_recentes = list(db["pipeline_events"].find({}, {"_id": 0}).sort("created_at", -1).limit(5))
+    pipeline_status = {
+        "running": PIPELINE_RUNTIME_STATE.get("running", False),
+        "last_run_at": PIPELINE_RUNTIME_STATE.get("last_run_at"),
+        "last_status": PIPELINE_RUNTIME_STATE.get("last_status"),
+        "last_error": PIPELINE_RUNTIME_STATE.get("last_error"),
+    }
+    saude_fiscal = fiscal_health_score(
+        {
+            "eventos_criticos": eventos_criticos,
+            "eventos_altos": eventos_altos,
+            "obrigacoes_pendentes": obrigacoes_pendentes,
+            "ocr_erros": ocr_erros,
+            "debitos_em_aberto": safe_count("debitos", {"status": {"$in": ["aberto", "pendente", "vencido", "em aberto"]}}),
+        }
+    )
 
     data = {
         "empresas": empresas,
@@ -461,6 +976,11 @@ def dashboard():
         "taxa_conformidade": 0 if obrigacoes == 0 else round((obrigacoes_entregues / obrigacoes) * 100, 2),
         "percentual_obrigacoes_entregues": 0 if obrigacoes == 0 else round((obrigacoes_entregues / obrigacoes) * 100, 2),
         "alertas_por_criticidade": alertas_por_criticidade,
+        "eventos_novos": eventos_novos,
+        "eventos_criticos": eventos_criticos,
+        "eventos_total": safe_count("pipeline_events"),
+        "saude_fiscal": saude_fiscal,
+        "pipeline_status": pipeline_status,
         "receita_bruta_mes": 0,
         "despesa_mensal": 0,
         "usuariosOnline": 0,
@@ -468,6 +988,7 @@ def dashboard():
         "proximos_vencimentos": serialize(proximos_vencimentos),
         "documentos_recentes": serialize(documentos_recentes),
         "alertas_recentes": serialize(alertas_recentes),
+        "eventos_recentes": serialize(eventos_recentes),
         "updatedAt": now(),
     }
     return envelope(data, total=1, **data)
@@ -691,6 +1212,36 @@ def listar_alertas():
     return envelope(data, total=safe_count("alertas"), alertas=data)
 
 
+@app.get("/api/events")
+def listar_eventos(limit: int = 100, status_filter: str | None = None):
+    data = list_pipeline_events(limit=limit, status_filter=status_filter)
+    query: dict[str, Any] = {}
+    if status_filter:
+        query["status"] = normalize_event_status(status_filter)
+    return envelope(data, total=safe_count("pipeline_events", query), eventos=data)
+
+
+@app.post("/api/events")
+def criar_evento(payload: dict):
+    data = store_pipeline_event(payload, upsert=False)
+    created_alert = resolve_alert_by_event(
+        data["id"],
+        data["severidade"],
+        data["titulo"],
+        data["descricao"],
+    )
+    if created_alert:
+        data["alerta"] = created_alert
+    return envelope(data, **data)
+
+
+@app.patch("/api/events/{item_id}/resolver")
+def resolver_evento(item_id: str):
+    updated = update_item("pipeline_events", item_id, {"status": "resolvido", "resolved_at": now(), "updated_at": now()})
+    resolve_alert_for_event(str(updated.get("id") or updated.get("_id") or item_id))
+    return envelope(updated, **updated)
+
+
 @app.put("/api/alertas/{item_id}/lido")
 def marcar_alerta_lido(item_id: str):
     data = update_item("alertas", item_id, {"lido": True})
@@ -749,7 +1300,72 @@ def calcular_fator_r(payload: dict):
     return envelope(resultado, total=1, **resultado)
 
 
+@app.post("/api/fiscal/pipeline/run")
+def fiscal_pipeline_run():
+    result = run_fiscal_pipeline_safe()
+    summary = result.get("summary") or {}
+    return envelope(summary, total=1, **summary)
+
+
+@app.get("/api/fiscal/pipeline/status")
+def fiscal_pipeline_status():
+    last_summary = PIPELINE_RUNTIME_STATE.get("last_summary") or {}
+    data = {
+        "running": PIPELINE_RUNTIME_STATE.get("running", False),
+        "last_run_at": PIPELINE_RUNTIME_STATE.get("last_run_at"),
+        "last_status": PIPELINE_RUNTIME_STATE.get("last_status"),
+        "last_error": PIPELINE_RUNTIME_STATE.get("last_error"),
+        "last_summary": last_summary,
+        "eventos_total": safe_count("pipeline_events"),
+        "eventos_novos": safe_count("pipeline_events", {"status": "novo"}),
+        "eventos_criticos": safe_count(
+            "pipeline_events",
+            {"severidade": {"$in": ["critica", "alta"]}, "status": {"$nin": ["resolvido"]}},
+        ),
+        "alertas_gerados": safe_count(
+            "alertas",
+            {"evento_id": {"$exists": True}},
+        ),
+    }
+    return envelope(data, total=1, **data)
+
+
+@app.get("/api/fiscal/pipeline/logs")
+def fiscal_pipeline_logs(limit: int = 100):
+    try:
+        data = serialize(list(db["fiscal_pipeline_logs"].find({}).sort("created_at", -1).limit(limit)))
+    except Exception:
+        data = []
+    return envelope(data, total=safe_count("fiscal_pipeline_logs"), logs=data)
+
+
 @app.post("/api/auth/forgot-password")
 def forgot_password(payload: dict):
     email = (payload.get("email") or "").strip()
     return envelope({"email": email, "sent": bool(email)}, total=1)
+
+
+@app.on_event("startup")
+def start_pipeline_scheduler():
+    global PIPELINE_SCHEDULER_STARTED
+    if PIPELINE_SCHEDULER_STARTED:
+        return
+
+    enabled = str(os.environ.get("PIPELINE_AUTORUN_ENABLED", "0")).strip().lower() in {"1", "true", "yes", "on"}
+    interval_raw = os.environ.get("PIPELINE_AUTORUN_INTERVAL_MINUTES", "0").strip() or "0"
+    try:
+        interval_minutes = int(interval_raw)
+    except ValueError:
+        interval_minutes = 0
+
+    if not enabled or interval_minutes <= 0:
+        return
+
+    scheduler_thread = threading.Thread(
+        target=pipeline_scheduler_loop,
+        args=(interval_minutes,),
+        daemon=True,
+        name="fiscal-pipeline-scheduler",
+    )
+    scheduler_thread.start()
+    PIPELINE_SCHEDULER_STARTED = True

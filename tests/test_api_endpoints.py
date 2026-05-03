@@ -62,6 +62,18 @@ def _matches(document, query):
                     return False
                 if operator == "$ne" and value == operand:
                     return False
+                if operator == "$exists":
+                    exists = key in document and document.get(key) is not None
+                    if bool(operand) != exists:
+                        return False
+                if operator == "$gte" and value < operand:
+                    return False
+                if operator == "$lte" and value > operand:
+                    return False
+                if operator == "$gt" and value <= operand:
+                    return False
+                if operator == "$lt" and value >= operand:
+                    return False
         else:
             if str(value) != str(expected):
                 return False
@@ -170,6 +182,7 @@ def make_db():
             [
                 {"_id": ObjectId(), "status": "processado"},
                 {"_id": ObjectId(), "status": "pendente"},
+                {"_id": ObjectId(), "status": "erro", "nome_arquivo": "arquivo-erro.pdf"},
             ]
         ),
         "robots": FakeCollection([{"_id": ObjectId(), "status": "idle"}]),
@@ -178,8 +191,10 @@ def make_db():
         "sharepoint": FakeCollection([]),
         "tipos_relatorios": FakeCollection([{"_id": ObjectId(), "nome": "Fiscal"}]),
         "relatorios": FakeCollection([{"_id": ObjectId(), "nome": "Relatorio 1"}]),
-        "certidoes": FakeCollection([{"_id": ObjectId(), "cnpj": "12345678000100", "tipo": "CND"}]),
+        "certidoes": FakeCollection([{"_id": ObjectId(), "cnpj": "12345678000100", "tipo": "CND", "data_validade": "2026-05-04", "status": "vigente"}]),
         "debitos": FakeCollection([{"_id": ObjectId(), "cnpj": "12345678000100", "status": "aberto"}]),
+        "pipeline_events": FakeCollection([]),
+        "fiscal_pipeline_logs": FakeCollection([]),
         "usuarios": FakeCollection([]),
         "fiscal_data": FakeCollection([]),
         }
@@ -279,3 +294,85 @@ def test_calcular_fator_r_returns_200(client):
     payload = response.json()["data"]
     assert payload["status"] == "SUCESSO"
     assert "fator_r_percentual" in payload
+
+
+def test_events_endpoint_lists_and_creates(client):
+    response = client.get("/api/events", follow_redirects=False)
+    assert response.status_code == 200
+    payload = response.json()["data"]
+    assert isinstance(payload, list)
+
+    create_response = client.post(
+        "/api/events",
+        json={
+            "origem": "usuario",
+            "tipo": "alerta",
+            "empresa_id": "empresa-1",
+            "severidade": "critica",
+            "titulo": "Evento manual",
+            "descricao": "Evento gerado via API",
+            "payload": {"origem": "usuario"},
+            "referencia": "manual-001",
+        },
+        follow_redirects=False,
+    )
+    assert create_response.status_code == 200
+    created = create_response.json()["data"]
+    assert created["origem"] == "usuario"
+    assert created["severidade"] == "critica"
+    assert created["titulo"] == "Evento manual"
+    assert "alerta" in create_response.json()["data"]
+
+
+def test_pipeline_run_generates_events_alerts_and_logs(client):
+    before_events = app_module.db["pipeline_events"].count_documents({})
+    before_alerts = app_module.db["alertas"].count_documents({})
+
+    response = client.post("/api/fiscal/pipeline/run", follow_redirects=False)
+    assert response.status_code == 200
+    summary = response.json()["data"]
+    assert summary["status"] == "sucesso"
+    assert summary["eventos_gerados"] >= 3
+    assert summary["alertas_gerados"] >= 2
+
+    after_events = app_module.db["pipeline_events"].count_documents({})
+    after_alerts = app_module.db["alertas"].count_documents({})
+    assert after_events >= before_events + 3
+    assert after_alerts >= before_alerts + 2
+
+    status_response = client.get("/api/fiscal/pipeline/status", follow_redirects=False)
+    assert status_response.status_code == 200
+    status_payload = status_response.json()["data"]
+    assert status_payload["last_status"] == "sucesso"
+    assert status_payload["eventos_total"] >= after_events
+
+    logs_response = client.get("/api/fiscal/pipeline/logs", follow_redirects=False)
+    assert logs_response.status_code == 200
+    logs_payload = logs_response.json()["data"]
+    assert isinstance(logs_payload, list)
+    assert len(logs_payload) >= 2
+
+
+def test_resolver_evento_marks_resolved(client):
+    created = client.post(
+        "/api/events",
+        json={
+            "origem": "fiscal",
+            "tipo": "vencimento",
+            "empresa_id": "empresa-2",
+            "severidade": "alta",
+            "titulo": "Vencimento pendente",
+            "descricao": "Alerta de vencimento",
+            "payload": {"origem": "fiscal"},
+            "referencia": "resolver-001",
+        },
+        follow_redirects=False,
+    ).json()["data"]
+
+    resolve_response = client.patch(f"/api/events/{created['id']}/resolver", follow_redirects=False)
+    assert resolve_response.status_code == 200
+    resolved = resolve_response.json()["data"]
+    assert resolved["status"] == "resolvido"
+
+    stored_event = app_module.db["pipeline_events"].find_one({"dedupe_key": created["dedupe_key"]})
+    assert stored_event["status"] == "resolvido"
