@@ -1,0 +1,69 @@
+{
+  "generated_at": "2026-05-03",
+  "status": "PARCIAL",
+  "score": 90,
+  "project_source": "C:\\Users\\admin-local\\ServerApp\\consultSLTweb",
+  "destination_repo": "https://github.com/sltconsultauditoria-web/SLTWEB",
+  "github_pages_url": "https://sltconsultauditoria-web.github.io/SLTWEB/",
+  "copy_status": {
+    "remote_matches_destination": true,
+    "local_branch": "release-auditoria",
+    "main_branch_exists_locally": true,
+    "project_original_preserved": true,
+    "push_executed": false
+  },
+  "github_pages": {
+    "homepage": "https://sltconsultauditoria-web.github.io/SLTWEB",
+    "basename": "/SLTWEB",
+    "workflow_created": true,
+    "workflow_path": ".github/workflows/frontend-pages.yml",
+    "build_output": "frontend/build",
+    "api_secret_required": "REACT_APP_API_URL"
+  },
+  "sharepoint": {
+    "status_endpoint": "/api/sharepoint/status",
+    "ingestion_endpoints": [
+      "/api/robots/ingestion/status",
+      "/api/robots/ingestion/files",
+      "/api/robots/ingestion/history",
+      "/api/robots/ingestion/run-now"
+    ],
+    "sync_endpoint": "/api/sharepoint/sync",
+    "graph_ready": true,
+    "env_vars_required": [
+      "SHAREPOINT_SITE_URL",
+      "SHAREPOINT_SITE_ID",
+      "SHAREPOINT_DRIVE_ID",
+      "AZURE_TENANT_ID",
+      "AZURE_CLIENT_ID",
+      "AZURE_CLIENT_SECRET"
+    ]
+  },
+  "validation": {
+    "py_compile": "ok",
+    "pytest": "ok",
+    "pytest_result": "70 passed, 1 skipped",
+    "frontend_build": "ok",
+    "build_base_path": "/SLTWEB/",
+    "git_diff_check": "ok"
+  },
+  "files_created": [
+    "github_pages_sharepoint_deploy_report.md",
+    "github_pages_sharepoint_deploy_report.json"
+  ],
+  "files_modified": [
+    ".env.example",
+    "backend/main_enterprise.py",
+    "frontend/package.json",
+    "frontend/src/App.js",
+    "frontend/.env.production.example",
+    "tests/test_api_endpoints.py"
+  ],
+  "pending": [
+    "Configurar REACT_APP_API_URL no GitHub Secrets.",
+    "Configurar os secrets Azure/SharePoint no ambiente de destino.",
+    "Executar commit e push para o repo destino.",
+    "Validar os endpoints no Pages e no backend publicado.",
+    "Ajustar CORS_ORIGINS no ambiente de produção."
+  ]
+}

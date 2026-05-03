@@ -308,6 +308,17 @@ def test_alertas_are_normalized(client):
         assert field in first
 
 
+def test_sharepoint_sync_endpoint_returns_200_without_config(client, monkeypatch):
+    monkeypatch.delenv("SHAREPOINT_SITE_URL", raising=False)
+    monkeypatch.delenv("SHAREPOINT_DRIVE_ID", raising=False)
+    monkeypatch.delenv("SHAREPOINT_SITE_ID", raising=False)
+    response = client.post("/api/sharepoint/sync", follow_redirects=False)
+    assert response.status_code == 200
+    payload = response.json()["data"]
+    assert payload["status"] == "log_only"
+    assert payload["configured"] is False
+
+
 def test_delete_documento_existing_returns_ok(client):
     existing_id = str(app_module.db["documentos"].items[0]["_id"])
     response = client.delete(f"/api/documentos/{existing_id}", follow_redirects=False)

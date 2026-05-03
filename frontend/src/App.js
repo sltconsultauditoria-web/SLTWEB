@@ -20,12 +20,10 @@ import OCR from "@/pages/OCR";
 import TimelineEmpresa from "@/pages/TimelineEmpresa";
 
 function App() {
-  const basename = process.env.PUBLIC_URL || "";
-
   return (
     <AuthProvider>
       <div className="App">
-        <BrowserRouter basename={basename}>
+        <BrowserRouter basename="/SLTWEB">
           <Routes>
             {/* Públicas */}
             <Route path="/" element={<Navigate to="/login" replace />} />

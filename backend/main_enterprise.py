@@ -2590,8 +2590,33 @@ def robot_history():
 
 @app.get("/api/sharepoint/status")
 def sharepoint():
-    data = {"status": "not_configured", "sync": False}
+    configured = bool(os.environ.get("SHAREPOINT_SITE_URL") and (os.environ.get("SHAREPOINT_DRIVE_ID") or os.environ.get("SHAREPOINT_SITE_ID")))
+    data = {
+        "status": "configured" if configured else "not_configured",
+        "sync": configured,
+        "site_url_configured": bool(os.environ.get("SHAREPOINT_SITE_URL")),
+        "site_id_configured": bool(os.environ.get("SHAREPOINT_SITE_ID")),
+        "drive_id_configured": bool(os.environ.get("SHAREPOINT_DRIVE_ID")),
+        "graph_configured": bool(os.environ.get("AZURE_TENANT_ID") and os.environ.get("AZURE_CLIENT_ID") and os.environ.get("AZURE_CLIENT_SECRET")),
+    }
     return envelope(data, total=1, **data)
+
+
+@app.post("/api/sharepoint/sync")
+def sharepoint_sync():
+    configured = bool(os.environ.get("SHAREPOINT_SITE_URL") and (os.environ.get("SHAREPOINT_DRIVE_ID") or os.environ.get("SHAREPOINT_SITE_ID")))
+    payload = {
+        "status": "queued" if configured else "log_only",
+        "configured": configured,
+        "message": "Sincronizacao SharePoint enfileirada" if configured else "SharePoint nao configurado; apenas log local",
+        "timestamp": now(),
+    }
+    if configured:
+        job = create_job("sharepoint_sync", {"source": "api", "mode": "sharepoint"}, max_attempts=1)
+        payload["job"] = job
+        return envelope(payload, **payload)
+    register_alert_history("sharepoint_sync_log_only", payload)
+    return envelope(payload, **payload)
 
 
 @app.get("/api/tipos_relatorios")
