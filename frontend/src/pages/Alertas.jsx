@@ -1,5 +1,3 @@
-import { useEffect, useState } from 'react';
-import { api } from '@/context/AuthContext';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
@@ -15,25 +13,11 @@ import {
   countCriticalAlertas,
   isResolvedAlert,
   isUnreadAlert,
-  normalizeAlertas,
 } from '@/lib/alertas';
+import { useNotifications } from '@/hooks/useNotifications';
 
 const Alertas = () => {
-  const [alertas, setAlertas] = useState([]);
-
-  useEffect(() => {
-    const carregarAlertas = async () => {
-      try {
-        const response = await api.get('/alertas');
-        const items = Array.isArray(response.data) ? response.data : [];
-        setAlertas(normalizeAlertas(items));
-      } catch (error) {
-        console.error('Erro ao carregar alertas:', error);
-        setAlertas([]);
-      }
-    };
-    carregarAlertas();
-  }, []);
+  const { alertas, markAlertAsRead, markAlertAsResolved } = useNotifications();
 
   const getPrioridadeConfig = (prioridade) => {
     const configs = {
@@ -56,11 +40,11 @@ const Alertas = () => {
   };
 
   const marcarComoLido = (id) => {
-    setAlertas(alertas.map(a => a.id === id ? { ...a, lido: true } : a));
+    markAlertAsRead(id);
   };
 
   const marcarComoResolvido = (id) => {
-    setAlertas(alertas.map(a => a.id === id ? { ...a, resolvido: true, lido: true } : a));
+    markAlertAsResolved(id);
   };
 
   const alertasNaoLidos = alertas.filter(isUnreadAlert);

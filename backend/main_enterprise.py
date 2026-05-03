@@ -1,3 +1,4 @@
+import asyncio
 from datetime import date, datetime, timedelta
 from io import BytesIO
 import os
@@ -8,7 +9,7 @@ import zipfile
 from xml.sax.saxutils import escape as xml_escape
 
 from bson import ObjectId
-from fastapi import FastAPI, File, Header, HTTPException, UploadFile, Response, status
+from fastapi import FastAPI, File, Header, HTTPException, UploadFile, WebSocket, WebSocketDisconnect, Response, status
 from fastapi.middleware.cors import CORSMiddleware
 from pymongo import MongoClient
 
@@ -48,6 +49,42 @@ PIPELINE_RUNTIME_STATE: dict[str, Any] = {
     "last_summary": {},
 }
 PIPELINE_SCHEDULER_STARTED = False
+
+
+class NotificationHub:
+    def __init__(self) -> None:
+        self.connections: set[WebSocket] = set()
+        self.loop: asyncio.AbstractEventLoop | None = None
+
+    async def connect(self, websocket: WebSocket) -> None:
+        await websocket.accept()
+        self.connections.add(websocket)
+        self.loop = asyncio.get_running_loop()
+
+    def disconnect(self, websocket: WebSocket) -> None:
+        self.connections.discard(websocket)
+
+    async def broadcast(self, payload: dict[str, Any]) -> None:
+        if not self.connections:
+            return
+
+        stale_connections: list[WebSocket] = []
+        for connection in list(self.connections):
+            try:
+                await connection.send_json(payload)
+            except Exception:
+                stale_connections.append(connection)
+
+        for connection in stale_connections:
+            self.connections.discard(connection)
+
+    def broadcast_from_thread(self, payload: dict[str, Any]) -> None:
+        if not self.loop or not self.loop.is_running():
+            return
+        asyncio.run_coroutine_threadsafe(self.broadcast(payload), self.loop)
+
+
+NOTIFICATION_HUB = NotificationHub()
 
 
 def now() -> str:
@@ -212,6 +249,7 @@ def normalize_alert_document(document: dict[str, Any]) -> dict[str, Any]:
             "id": serialized.get("id") or serialized.get("_id"),
             "titulo": serialized.get("titulo") or payload.get("titulo") or serialized.get("mensagem") or payload.get("mensagem") or "Alerta",
             "descricao": serialized.get("descricao") or payload.get("descricao") or serialized.get("mensagem") or payload.get("mensagem") or "",
+            "empresa_id": serialized.get("empresa_id") or payload.get("empresa_id") or serialized.get("empresaId") or payload.get("empresaId"),
             "prioridade": prioridade,
             "status": status,
             "lido": read,
@@ -365,7 +403,15 @@ def store_pipeline_event(payload: dict[str, Any], upsert: bool = False) -> dict[
         document["_id"] = result.inserted_id
 
     document["id"] = str(document.get("_id") or document.get("id") or ObjectId())
-    return normalize_pipeline_event(document)
+    normalized = normalize_pipeline_event(document)
+    if normalized["severidade"] in {"alta", "critica"}:
+        broadcast_notification(
+            "evento",
+            normalized["severidade"],
+            normalized.get("empresa_id"),
+            normalized.get("descricao") or normalized.get("titulo") or normalized.get("tipo") or "Novo evento fiscal",
+        )
+    return normalized
 
 
 def store_pipeline_log(payload: dict[str, Any]) -> dict[str, Any]:
@@ -384,10 +430,17 @@ def resolve_alert_by_event(event_id: str, severity: str, title: str, description
     if severity not in {"alta", "critica"}:
         return None
 
+    related_event = db["pipeline_events"].find_one({"id": event_id}) or db["pipeline_events"].find_one({"_id": event_id})
+    empresa_id = None
+    if related_event:
+        related_event_serialized = serialize(related_event)
+        empresa_id = related_event_serialized.get("empresa_id") or related_event_serialized.get("payload", {}).get("empresa_id")
+
     existing = db["alertas"].find_one({"evento_id": event_id})
     alert_document = {
         "titulo": title,
         "descricao": description,
+        "empresa_id": empresa_id,
         "prioridade": severity,
         "status": "pendente",
         "lido": False,
@@ -402,11 +455,25 @@ def resolve_alert_by_event(event_id: str, severity: str, title: str, description
             {"$set": alert_document},
         )
         updated = db["alertas"].find_one({"evento_id": event_id}) or alert_document
-        return normalize_alert_document(updated)
+        normalized = normalize_alert_document(updated)
+        broadcast_notification(
+            "alerta",
+            normalized.get("prioridade") or severity,
+            normalized.get("empresa_id"),
+            normalized.get("descricao") or normalized.get("titulo") or "Novo alerta fiscal",
+        )
+        return normalized
 
     result = db["alertas"].insert_one(alert_document)
     alert_document["_id"] = result.inserted_id
-    return normalize_alert_document(alert_document)
+    normalized = normalize_alert_document(alert_document)
+    broadcast_notification(
+        "alerta",
+        normalized.get("prioridade") or severity,
+        normalized.get("empresa_id"),
+        normalized.get("descricao") or normalized.get("titulo") or "Novo alerta fiscal",
+    )
+    return normalized
 
 
 def resolve_alert_for_event(event_id: str) -> None:
@@ -416,6 +483,22 @@ def resolve_alert_for_event(event_id: str) -> None:
     db["alertas"].update_one(
         {"evento_id": event_id},
         {"$set": {"status": "resolvido", "resolvido": True, "lido": True, "updated_at": now()}},
+    )
+
+
+def build_notification_payload(tipo: str, severidade: str, empresa_id: Any, mensagem: str) -> dict[str, Any]:
+    return {
+        "tipo": tipo,
+        "severidade": normalize_severidade(severidade),
+        "empresa_id": str(empresa_id or ""),
+        "mensagem": str(mensagem or ""),
+        "timestamp": now(),
+    }
+
+
+def broadcast_notification(tipo: str, severidade: str, empresa_id: Any, mensagem: str) -> None:
+    NOTIFICATION_HUB.broadcast_from_thread(
+        build_notification_payload(tipo, severidade, empresa_id, mensagem)
     )
 
 
@@ -1778,6 +1861,20 @@ def export_relatorios_excel(
 def listar_alertas():
     data = list_alerts()
     return envelope(data, total=safe_count("alertas"), alertas=data)
+
+
+@app.websocket("/ws/notificacoes")
+async def ws_notificacoes(websocket: WebSocket):
+    await NOTIFICATION_HUB.connect(websocket)
+    try:
+        while True:
+            message = await websocket.receive_text()
+            if message.strip().lower() == "ping":
+                await websocket.send_json({"tipo": "pong", "timestamp": now()})
+    except WebSocketDisconnect:
+        pass
+    finally:
+        NOTIFICATION_HUB.disconnect(websocket)
 
 
 @app.get("/api/events")
