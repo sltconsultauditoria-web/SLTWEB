@@ -6,6 +6,9 @@ from bson import ObjectId
 from fastapi.testclient import TestClient
 
 import backend.main_enterprise as app_module
+from backend.integrations.government.ecac_service import GovernmentECACService
+from backend.integrations.government.pgdas_service import PGDAService
+from backend.integrations.government.sefaz_service import SEFAZService
 
 
 class FakeInsertResult:
@@ -197,6 +200,7 @@ def make_db():
         "debitos": FakeCollection([{"_id": ObjectId(), "cnpj": "12345678000100", "status": "aberto"}]),
         "pipeline_events": FakeCollection([]),
         "fiscal_pipeline_logs": FakeCollection([]),
+        "job_logs": FakeCollection([]),
         "decision_actions": FakeCollection([]),
         "subscription_plans": FakeCollection([]),
         "tenants": FakeCollection([]),
@@ -258,6 +262,7 @@ def wait_for_job(client, job_id, timeout=5.0):
         ("GET", "/api/integracoes/pgdas/consultar", {"params": {"cnpj": "12345678000100"}}),
         ("GET", "/api/integracoes/sefaz/nfe", {"params": {"cnpj": "12345678000100"}}),
         ("GET", "/api/jobs", {}),
+        ("GET", "/api/jobs/metrics", {}),
         ("GET", "/api/subscriptions/plans", {}),
         ("GET", "/api/tenants", {}),
         ("GET", "/api/rbac/roles-permissions", {}),
@@ -614,6 +619,66 @@ def test_monetization_and_rbac_endpoints(client):
     roles = client.get("/api/rbac/roles-permissions", follow_redirects=False)
     assert roles.status_code == 200
     assert len(roles.json()["data"]) >= 3
+
+
+def test_government_connectors_simulated_mode(monkeypatch):
+    monkeypatch.delenv("ECAC_CLIENT_ID", raising=False)
+    monkeypatch.delenv("ECAC_CLIENT_SECRET", raising=False)
+    monkeypatch.delenv("ECAC_BASE_URL", raising=False)
+    service = GovernmentECACService()
+    contract = service.consultar_status("12345678000100")
+    assert contract["success"] is True
+    assert contract["mode"] == "simulado"
+    assert contract["provider"] == "ecac"
+    assert contract["data"]["cnpj"] == "12345678000100"
+
+    debt_contract = service.consultar_debitos("12345678000100")
+    cert_contract = service.consultar_certidoes("12345678000100")
+    assert debt_contract["success"] is True
+    assert cert_contract["success"] is True
+    assert debt_contract["mode"] == "simulado"
+    assert cert_contract["mode"] == "simulado"
+    assert debt_contract["provider"] == "ecac"
+    assert cert_contract["provider"] == "ecac"
+
+
+def test_government_connectors_real_mode_with_fallback(monkeypatch):
+    monkeypatch.setenv("PGDAS_USERNAME", "user")
+    monkeypatch.setenv("PGDAS_PASSWORD", "pass")
+    monkeypatch.setenv("PGDAS_BASE_URL", "https://pgdas.example")
+    service = PGDAService()
+    monkeypatch.setattr(service, "_real_pgdas", lambda cnpj, periodo=None: {"cnpj": cnpj, "periodo_referencia": periodo or "2026-05", "status": "em_dia"})
+    contract = service.consultar_pgdas("12345678000100", "2026-05")
+    assert contract["success"] is True
+    assert contract["mode"] == "real"
+    assert contract["provider"] == "pgdas"
+    assert contract["data"]["status"] == "em_dia"
+
+    monkeypatch.setenv("SEFAZ_API_URL", "https://sefaz.example")
+    monkeypatch.setenv("SEFAZ_API_KEY", "token")
+    sefaz = SEFAZService()
+    monkeypatch.setattr(sefaz, "_real_nfe", lambda cnpj, periodo=None: (_ for _ in ()).throw(RuntimeError("boom")))
+    fallback = sefaz.consultar_nfe("12345678000100")
+    assert fallback["success"] is True
+    assert fallback["mode"] == "simulado"
+    assert fallback["provider"] == "sefaz"
+    assert fallback["errors"]
+
+
+def test_job_metrics_endpoint_reports_processing_stats(client):
+    created = client.post(
+        "/api/ocr/process",
+        json={"nome_arquivo": "job-metrics.pdf", "texto": "CNPJ 12.345.678/0001-00"},
+        follow_redirects=False,
+    ).json()["data"]
+    wait_for_job(client, created["id"])
+    metrics_response = client.get("/api/jobs/metrics", follow_redirects=False)
+    assert metrics_response.status_code == 200
+    metrics = metrics_response.json()["data"]
+    assert "jobs_ok" in metrics
+    assert "jobs_error" in metrics
+    assert "avg_duration" in metrics
+    assert "last_success_at" in metrics
 
 
 def test_realtime_notifications_flow(client):

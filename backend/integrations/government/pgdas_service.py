@@ -1,36 +1,28 @@
 from __future__ import annotations
 
-import os
 from datetime import datetime, timedelta
 from hashlib import sha1
 from typing import Any
 
-
-def _digits(value: Any) -> str:
-    return "".join(ch for ch in str(value or "") if ch.isdigit())
+from backend.integrations.government.base import GovernmentConnectorBase, digits_only
 
 
 def _seed(cnpj: str, periodo: str | None = None) -> int:
-    key = f"{_digits(cnpj)}:{periodo or 'current'}"
+    key = f"{digits_only(cnpj)}:{periodo or 'current'}"
     return int(sha1(key.encode("utf-8")).hexdigest()[:8], 16)
 
 
-class PGDAService:
-    """Deterministic PGDAS connector with real-mode flags."""
+class PGDAService(GovernmentConnectorBase):
+    provider_name = "pgdas"
+    required_env_vars = ("PGDAS_USERNAME", "PGDAS_PASSWORD", "PGDAS_BASE_URL")
 
-    def __init__(self) -> None:
-        self.username = os.environ.get("PGDAS_USERNAME")
-        self.password = os.environ.get("PGDAS_PASSWORD")
-        self.base_url = os.environ.get("PGDAS_BASE_URL")
-        self.real_mode = bool(self.username and self.password and self.base_url)
-
-    def consultar(self, cnpj: str, periodo: str | None = None) -> dict[str, Any]:
+    def _simulate(self, cnpj: str, periodo: str | None = None) -> dict[str, Any]:
         seed = _seed(cnpj, periodo)
         receita = round(25000 + (seed % 70000), 2)
         das = round(receita * (0.04 + ((seed % 7) * 0.01)), 2)
         vencido = seed % 4 == 0
         return {
-            "cnpj": _digits(cnpj),
+            "cnpj": digits_only(cnpj),
             "periodo_referencia": periodo or datetime.utcnow().strftime("%Y-%m"),
             "regime": "Simples Nacional",
             "status": "vencido" if vencido else "em_dia",
@@ -41,6 +33,17 @@ class PGDAService:
             "proximo_vencimento": (datetime.utcnow().date() + timedelta(days=10 + (seed % 20))).isoformat(),
             "pendencias_pgdas": 1 if vencido else 0,
             "atualizado_em": datetime.utcnow().isoformat(),
-            "modo": "real" if self.real_mode else "simulado",
         }
+
+    def consultar_pgdas(self, cnpj: str, periodo: str | None = None) -> dict[str, Any]:
+        return self._safe_real_call(
+            lambda: self._real_pgdas(cnpj, periodo),
+            lambda: self._simulate(cnpj, periodo),
+        )
+
+    def consultar(self, cnpj: str, periodo: str | None = None) -> dict[str, Any]:
+        return self.consultar_pgdas(cnpj, periodo)["data"]
+
+    def _real_pgdas(self, cnpj: str, periodo: str | None = None) -> dict[str, Any]:
+        raise NotImplementedError("PGDAS real nao configurado")
 

@@ -3,6 +3,7 @@ from __future__ import annotations
 import os
 import threading
 from datetime import datetime
+from time import perf_counter
 from typing import Any, Callable
 
 try:
@@ -16,6 +17,7 @@ from bson import ObjectId
 
 
 JOB_COLLECTION = "jobs"
+JOB_LOG_COLLECTION = "job_logs"
 LOCAL_JOB_LOCK = threading.Lock()
 LOCAL_JOB_QUEUE: list[str] = []
 LOCAL_WORKER_STARTED = False
@@ -51,6 +53,32 @@ def load_job(job_id: str) -> dict[str, Any] | None:
 
 def persist_job(document: dict[str, Any]) -> dict[str, Any]:
     result = job_db()[JOB_COLLECTION].insert_one(document)
+    document["_id"] = result.inserted_id
+    document["id"] = str(result.inserted_id)
+    return serialize_job(document)
+
+
+def record_job_log(
+    *,
+    job_id: str,
+    provider: str,
+    status: str,
+    duration_ms: int,
+    mode: str | None = None,
+    error: str | None = None,
+    details: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    document = {
+        "job_id": job_id,
+        "provider": provider,
+        "status": status,
+        "duration_ms": duration_ms,
+        "mode": mode,
+        "error": error,
+        "details": details or {},
+        "created_at": now(),
+    }
+    result = job_db()[JOB_LOG_COLLECTION].insert_one(document)
     document["_id"] = result.inserted_id
     document["id"] = str(result.inserted_id)
     return serialize_job(document)
@@ -111,6 +139,26 @@ def retry_job(job_id: str) -> dict[str, Any]:
     return updated
 
 
+def job_metrics() -> dict[str, Any]:
+    logs = list(job_db()[JOB_LOG_COLLECTION].find({}))
+    jobs_ok = sum(1 for item in logs if str(item.get("status")) == "done")
+    jobs_error = sum(1 for item in logs if str(item.get("status")) == "error")
+    duration_values = [int(item.get("duration_ms") or 0) for item in logs if int(item.get("duration_ms") or 0) > 0]
+    avg_duration = round(sum(duration_values) / len(duration_values), 2) if duration_values else 0
+    last_success = None
+    for item in sorted(logs, key=lambda row: row.get("created_at") or ""):
+        if str(item.get("status")) == "done":
+            last_success = item.get("created_at")
+    return {
+        "jobs_ok": jobs_ok,
+        "jobs_error": jobs_error,
+        "avg_duration": avg_duration,
+        "last_success_at": last_success,
+        "providers": sorted({str(item.get("provider") or "") for item in logs if item.get("provider")}),
+        "total_logs": len(logs),
+    }
+
+
 def _use_redis_queue() -> bool:
     enabled = str(os.environ.get("ASYNC_USE_REDIS", "1")).strip().lower() in {"1", "true", "yes", "on"}
     return bool(enabled and redis and Queue and os.environ.get("REDIS_URL"))
@@ -162,6 +210,7 @@ def _process_ocr_job(job: dict[str, Any]) -> dict[str, Any]:
 
     raw_payload = job.get("payload") or {}
     payload = raw_payload.get("payload") if isinstance(raw_payload.get("payload"), dict) else raw_payload
+    start = perf_counter()
     existing_document = None
     document_id = str(payload.get("id") or payload.get("ocr_id") or payload.get("documento_id") or "").strip() or None
     if document_id:
@@ -172,12 +221,21 @@ def _process_ocr_job(job: dict[str, Any]) -> dict[str, Any]:
     processed = app_module.process_ocr_payload(payload, existing_document)
     stored = app_module.persist_ocr_document(processed, existing_id=document_id)
     app_module.log_ocr_processing(document_id, payload, stored)
+    record_job_log(
+        job_id=str(job.get("id") or ""),
+        provider="ocr",
+        status="done",
+        duration_ms=int((perf_counter() - start) * 1000),
+        mode="simulado",
+        details={"documento_id": stored.get("id"), "status": stored.get("status")},
+    )
     return {"ocr_documento": stored}
 
 
 def _process_fiscal_pipeline_job(job: dict[str, Any]) -> dict[str, Any]:
     import backend.main_enterprise as app_module
 
+    start = perf_counter()
     pipeline_result = app_module.run_fiscal_pipeline_once()
     summary = pipeline_result.get("summary") or {}
     decisions_created = 0
@@ -197,16 +255,22 @@ def _process_fiscal_pipeline_job(job: dict[str, Any]) -> dict[str, Any]:
         cnpj = serialized_company.get("cnpj")
         if not cnpj:
             continue
-        ecac_status = app_module.ecac_service.status(cnpj)
-        pgdas_status = app_module.pgdas_service.consultar(cnpj)
-        sefaz_status = app_module.sefaz_service.consultar_nfe(cnpj)
+        provider_start = perf_counter()
+        ecac_contract = app_module.ecac_service.consultar_status(cnpj)
+        ecac_duration = int((perf_counter() - provider_start) * 1000)
+        provider_start = perf_counter()
+        pgdas_contract = app_module.pgdas_service.consultar_pgdas(cnpj)
+        pgdas_duration = int((perf_counter() - provider_start) * 1000)
+        provider_start = perf_counter()
+        sefaz_contract = app_module.sefaz_service.consultar_nfe(cnpj)
+        sefaz_duration = int((perf_counter() - provider_start) * 1000)
         government_checks.append(
             {
                 "empresa_id": serialized_company.get("id"),
                 "cnpj": cnpj,
-                "ecac": ecac_status,
-                "pgdas": pgdas_status,
-                "sefaz": sefaz_status,
+                "ecac": ecac_contract,
+                "pgdas": pgdas_contract,
+                "sefaz": sefaz_contract,
             }
         )
 
@@ -216,13 +280,49 @@ def _process_fiscal_pipeline_job(job: dict[str, Any]) -> dict[str, Any]:
                 "empresa_id": serialized_company.get("id"),
                 "created_at": now(),
                 "detalhes": {
-                    "ecac": ecac_status,
-                    "pgdas": pgdas_status,
-                    "sefaz": sefaz_status,
+                    "ecac": ecac_contract,
+                    "pgdas": pgdas_contract,
+                    "sefaz": sefaz_contract,
                 },
             }
         )
 
+        record_job_log(
+            job_id=str(job.get("id") or ""),
+            provider="ecac",
+            status="done" if ecac_contract.get("success") else "error",
+            duration_ms=ecac_duration,
+            mode=str(ecac_contract.get("mode") or "simulado"),
+            error=(ecac_contract.get("errors") or [None])[0],
+            details={"empresa_id": serialized_company.get("id")},
+        )
+        record_job_log(
+            job_id=str(job.get("id") or ""),
+            provider="pgdas",
+            status="done" if pgdas_contract.get("success") else "error",
+            duration_ms=pgdas_duration,
+            mode=str(pgdas_contract.get("mode") or "simulado"),
+            error=(pgdas_contract.get("errors") or [None])[0],
+            details={"empresa_id": serialized_company.get("id")},
+        )
+        record_job_log(
+            job_id=str(job.get("id") or ""),
+            provider="sefaz",
+            status="done" if sefaz_contract.get("success") else "error",
+            duration_ms=sefaz_duration,
+            mode=str(sefaz_contract.get("mode") or "simulado"),
+            error=(sefaz_contract.get("errors") or [None])[0],
+            details={"empresa_id": serialized_company.get("id")},
+        )
+
+    record_job_log(
+        job_id=str(job.get("id") or ""),
+        provider="fiscal_pipeline",
+        status="done",
+        duration_ms=int((perf_counter() - start) * 1000),
+        mode="simulado",
+        details={"eventos": len(pipeline_result.get("events", [])), "decisions_created": decisions_created},
+    )
     return {
         "summary": summary,
         "decisions_created": decisions_created,
@@ -240,11 +340,29 @@ def _process_government_job(job: dict[str, Any]) -> dict[str, Any]:
     if not cnpj:
         raise ValueError("CNPJ obrigatorio")
     mode = str(payload.get("mode") or "simulated").lower()
+    start = perf_counter()
+    ecac_contract = app_module.ecac_service.consultar_status(cnpj)
+    pgdas_contract = app_module.pgdas_service.consultar_pgdas(cnpj, payload.get("periodo"))
+    sefaz_contract = app_module.sefaz_service.consultar_nfe(cnpj, payload.get("periodo"))
+    duration_ms = int((perf_counter() - start) * 1000)
+    record_job_log(
+        job_id=str(job.get("id") or ""),
+        provider="government_integration",
+        status="done",
+        duration_ms=duration_ms,
+        mode=mode,
+        details={
+            "cnpj": cnpj,
+            "ecac": ecac_contract,
+            "pgdas": pgdas_contract,
+            "sefaz": sefaz_contract,
+        },
+    )
     return {
         "mode": mode,
-        "ecac": app_module.ecac_service.status(cnpj),
-        "pgdas": app_module.pgdas_service.consultar(cnpj, payload.get("periodo")),
-        "sefaz": app_module.sefaz_service.consultar_nfe(cnpj, payload.get("periodo")),
+        "ecac": ecac_contract,
+        "pgdas": pgdas_contract,
+        "sefaz": sefaz_contract,
     }
 
 
@@ -256,6 +374,7 @@ def process_job(job_id: str) -> dict[str, Any]:
     job = serialize_job(job)
     attempts = max(1, int(job.get("attempts") or 0))
     update_job(job_id, {"status": "processing", "attempts": attempts, "started_at": now(), "error": None})
+    started = perf_counter()
 
     try:
         job_type = str(job.get("job_type") or "").lower()
@@ -275,6 +394,7 @@ def process_job(job_id: str) -> dict[str, Any]:
                 "result": result,
                 "error": None,
                 "finished_at": now(),
+                "duration_ms": int((perf_counter() - started) * 1000),
             },
         )
         return finished
@@ -285,6 +405,15 @@ def process_job(job_id: str) -> dict[str, Any]:
                 "status": "error",
                 "error": str(exc),
                 "finished_at": now(),
+                "duration_ms": int((perf_counter() - started) * 1000),
             },
+        )
+        record_job_log(
+            job_id=job_id,
+            provider=str(job.get("job_type") or "job"),
+            status="error",
+            duration_ms=int((perf_counter() - started) * 1000),
+            mode="simulado",
+            error=str(exc),
         )
         return failure

@@ -1,29 +1,22 @@
 from __future__ import annotations
 
-import os
 from datetime import datetime, timedelta
 from hashlib import sha1
 from typing import Any
 
-
-def _digits(value: Any) -> str:
-    return "".join(ch for ch in str(value or "") if ch.isdigit())
+from backend.integrations.government.base import GovernmentConnectorBase, digits_only
 
 
 def _seed(cnpj: str, periodo: str | None = None) -> int:
-    key = f"{_digits(cnpj)}:{periodo or 'current'}"
+    key = f"{digits_only(cnpj)}:{periodo or 'current'}"
     return int(sha1(key.encode("utf-8")).hexdigest()[:8], 16)
 
 
-class SEFAZService:
-    """Deterministic SEFAZ / NFe connector with real-mode flags."""
+class SEFAZService(GovernmentConnectorBase):
+    provider_name = "sefaz"
+    required_env_vars = ("SEFAZ_API_URL", "SEFAZ_API_KEY")
 
-    def __init__(self) -> None:
-        self.api_url = os.environ.get("SEFAZ_API_URL")
-        self.api_key = os.environ.get("SEFAZ_API_KEY")
-        self.real_mode = bool(self.api_url and self.api_key)
-
-    def consultar_nfe(self, cnpj: str, periodo: str | None = None) -> dict[str, Any]:
+    def _simulate(self, cnpj: str, periodo: str | None = None) -> dict[str, Any]:
         seed = _seed(cnpj, periodo)
         count_emitidas = (seed % 9) + 1
         count_recebidas = ((seed // 3) % 7) + 1
@@ -40,7 +33,7 @@ class SEFAZService:
                 }
             )
         return {
-            "cnpj": _digits(cnpj),
+            "cnpj": digits_only(cnpj),
             "periodo_referencia": periodo or datetime.utcnow().strftime("%Y-%m"),
             "status": "ok" if seed % 5 else "atencao",
             "nfe_emitidas": count_emitidas,
@@ -48,6 +41,17 @@ class SEFAZService:
             "total_documentos": total_documentos,
             "documentos": documentos,
             "atualizado_em": datetime.utcnow().isoformat(),
-            "modo": "real" if self.real_mode else "simulado",
         }
+
+    def consultar_nfe(self, cnpj: str, periodo: str | None = None) -> dict[str, Any]:
+        return self._safe_real_call(
+            lambda: self._real_nfe(cnpj, periodo),
+            lambda: self._simulate(cnpj, periodo),
+        )
+
+    def consultar(self, cnpj: str, periodo: str | None = None) -> dict[str, Any]:
+        return self.consultar_nfe(cnpj, periodo)["data"]
+
+    def _real_nfe(self, cnpj: str, periodo: str | None = None) -> dict[str, Any]:
+        raise NotImplementedError("SEFAZ real nao configurado")
 

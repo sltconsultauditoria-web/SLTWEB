@@ -1,47 +1,38 @@
 from __future__ import annotations
 
-import os
 from datetime import datetime, timedelta
 from hashlib import sha1
 from typing import Any
 
-
-def _digits(value: Any) -> str:
-    return "".join(ch for ch in str(value or "") if ch.isdigit())
+from backend.integrations.government.base import GovernmentConnectorBase, digits_only
 
 
 def _seed(cnpj: str) -> int:
-    digits = _digits(cnpj) or "0"
+    digits = digits_only(cnpj) or "0"
     return int(sha1(digits.encode("utf-8")).hexdigest()[:8], 16)
 
 
-class GovernmentECACService:
-    """Deterministic e-CAC connector with real-mode flags."""
+class GovernmentECACService(GovernmentConnectorBase):
+    provider_name = "ecac"
+    required_env_vars = ("ECAC_CLIENT_ID", "ECAC_CLIENT_SECRET", "ECAC_BASE_URL")
 
-    def __init__(self) -> None:
-        self.client_id = os.environ.get("ECAC_CLIENT_ID")
-        self.client_secret = os.environ.get("ECAC_CLIENT_SECRET")
-        self.base_url = os.environ.get("ECAC_BASE_URL")
-        self.real_mode = bool(self.client_id and self.client_secret and self.base_url)
-
-    def status(self, cnpj: str) -> dict[str, Any]:
+    def _simulate_status(self, cnpj: str) -> dict[str, Any]:
         seed = _seed(cnpj)
         debitos_abertos = seed % 5
         certidoes_vencendo = (seed // 5) % 3
         score_risco = min(100, debitos_abertos * 18 + certidoes_vencendo * 20 + (seed % 11))
         situacao = "regular" if score_risco < 25 else "atencao" if score_risco < 60 else "critica"
         return {
-            "cnpj": _digits(cnpj),
+            "cnpj": digits_only(cnpj),
             "status": "ok" if situacao == "regular" else "pendencia" if situacao == "atencao" else "critica",
             "situacao_fiscal": situacao,
             "debitos_abertos": debitos_abertos,
             "certidoes_vencendo": certidoes_vencendo,
             "score_risco": score_risco,
             "atualizado_em": datetime.utcnow().isoformat(),
-            "modo": "real" if self.real_mode else "simulado",
         }
 
-    def debitos(self, cnpj: str) -> list[dict[str, Any]]:
+    def _simulate_debitos(self, cnpj: str) -> list[dict[str, Any]]:
         seed = _seed(cnpj)
         count = (seed % 3) + 1
         today = datetime.utcnow().date()
@@ -51,7 +42,7 @@ class GovernmentECACService:
             items.append(
                 {
                     "id": f"ecac-debito-{index + 1}",
-                    "cnpj": _digits(cnpj),
+                    "cnpj": digits_only(cnpj),
                     "origem": "eCAC",
                     "tipo": "tributario",
                     "descricao": f"Debito federal simulado {index + 1}",
@@ -62,13 +53,13 @@ class GovernmentECACService:
             )
         return items
 
-    def certidoes(self, cnpj: str) -> list[dict[str, Any]]:
+    def _simulate_certidoes(self, cnpj: str) -> list[dict[str, Any]]:
         seed = _seed(cnpj)
         today = datetime.utcnow().date()
         return [
             {
                 "tipo": "Federal (RFB/PGFN)",
-                "cnpj": _digits(cnpj),
+                "cnpj": digits_only(cnpj),
                 "status": "valida" if seed % 2 == 0 else "atencao",
                 "data_emissao": datetime.utcnow().isoformat(),
                 "data_validade": (today + timedelta(days=30 + (seed % 120))).isoformat(),
@@ -76,7 +67,7 @@ class GovernmentECACService:
             },
             {
                 "tipo": "FGTS (CRF)",
-                "cnpj": _digits(cnpj),
+                "cnpj": digits_only(cnpj),
                 "status": "valida" if seed % 3 != 0 else "vencida",
                 "data_emissao": datetime.utcnow().isoformat(),
                 "data_validade": (today + timedelta(days=10 + (seed % 60))).isoformat(),
@@ -84,8 +75,32 @@ class GovernmentECACService:
             },
         ]
 
+    def consultar_status(self, cnpj: str) -> dict[str, Any]:
+        return self._safe_real_call(lambda: self._real_status(cnpj), lambda: self._simulate_status(cnpj))
+
+    def consultar_debitos(self, cnpj: str) -> dict[str, Any]:
+        return self._safe_real_call(lambda: self._real_debitos(cnpj), lambda: self._simulate_debitos(cnpj))
+
+    def consultar_certidoes(self, cnpj: str) -> dict[str, Any]:
+        return self._safe_real_call(lambda: self._real_certidoes(cnpj), lambda: self._simulate_certidoes(cnpj))
+
+    def consultar_pendencias(self, cnpj: str) -> dict[str, Any]:
+        return self._safe_real_call(lambda: self._real_pendencias(cnpj), lambda: self._simulate_pendencias(cnpj))
+
+    def status(self, cnpj: str) -> dict[str, Any]:
+        return self.consultar_status(cnpj)["data"]
+
+    def debitos(self, cnpj: str) -> list[dict[str, Any]]:
+        return self.consultar_debitos(cnpj)["data"]
+
+    def certidoes(self, cnpj: str) -> list[dict[str, Any]]:
+        return self.consultar_certidoes(cnpj)["data"]
+
     def pendencias(self, cnpj: str) -> dict[str, Any]:
-        status = self.status(cnpj)
+        return self.consultar_pendencias(cnpj)["data"]
+
+    def _simulate_pendencias(self, cnpj: str) -> dict[str, Any]:
+        status = self._simulate_status(cnpj)
         return {
             "cnpj": status["cnpj"],
             "data_consulta": datetime.utcnow().isoformat(),
@@ -105,6 +120,18 @@ class GovernmentECACService:
             },
             "score_risco": status["score_risco"],
             "nivel_risco": "CRITICO" if status["score_risco"] >= 70 else "ALTO" if status["score_risco"] >= 40 else "MEDIO" if status["score_risco"] >= 20 else "BAIXO",
-            "modo": "real" if self.real_mode else "simulado",
+            "modo": "real" if self.credentials_present() else "simulado",
         }
+
+    def _real_status(self, cnpj: str) -> dict[str, Any]:
+        raise NotImplementedError("e-CAC real nao configurado")
+
+    def _real_debitos(self, cnpj: str) -> list[dict[str, Any]]:
+        raise NotImplementedError("e-CAC real nao configurado")
+
+    def _real_certidoes(self, cnpj: str) -> list[dict[str, Any]]:
+        raise NotImplementedError("e-CAC real nao configurado")
+
+    def _real_pendencias(self, cnpj: str) -> dict[str, Any]:
+        raise NotImplementedError("e-CAC real nao configurado")
 

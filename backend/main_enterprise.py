@@ -20,7 +20,7 @@ from backend.integrations.government.pgdas_service import PGDAService
 from backend.integrations.government.sefaz_service import SEFAZService
 from backend.core.security import create_access_token, decode_access_token
 from backend.services.decision_engine import DecisionEngine
-from backend.workers.async_jobs import create_job, list_jobs as list_async_jobs, load_job as load_async_job, retry_job as retry_async_job
+from backend.workers.async_jobs import create_job, job_metrics as async_job_metrics, list_jobs as list_async_jobs, load_job as load_async_job, retry_job as retry_async_job
 
 app = FastAPI(title="CONSULTSLT ENTERPRISE")
 
@@ -1836,18 +1836,30 @@ def collection_response(collection_name: str, alias: str | None = None, fallback
 @app.get("/api/integracoes/ecac/status")
 def integracao_ecac_status(cnpj: str, authorization: str | None = Header(default=None)):
     enforce_module_permission("integracoes", authorization)
-    data = ecac_service.status(cnpj)
+    contract = ecac_service.consultar_status(cnpj)
+    data = dict(contract.get("data") or {})
+    data.update(
+        {
+            "modo": contract.get("mode"),
+            "provider": contract.get("provider"),
+            "errors": contract.get("errors") or [],
+        }
+    )
     return envelope(data, **data)
 
 
 @app.get("/api/integracoes/ecac/debitos")
 def integracao_ecac_debitos(cnpj: str, authorization: str | None = Header(default=None)):
     enforce_module_permission("integracoes", authorization)
-    debitos = ecac_service.debitos(cnpj)
+    contract = ecac_service.consultar_debitos(cnpj)
+    debitos = list(contract.get("data") or [])
     payload = {
         "cnpj": digits_only(cnpj),
         "debitos": debitos,
         "total_debitos": len(debitos),
+        "modo": contract.get("mode"),
+        "provider": contract.get("provider"),
+        "errors": contract.get("errors") or [],
     }
     return envelope(payload, total=len(debitos), **payload)
 
@@ -1855,14 +1867,30 @@ def integracao_ecac_debitos(cnpj: str, authorization: str | None = Header(defaul
 @app.get("/api/integracoes/pgdas/consultar")
 def integracao_pgdas_consultar(cnpj: str, periodo: str | None = None, authorization: str | None = Header(default=None)):
     enforce_module_permission("integracoes", authorization)
-    data = pgdas_service.consultar(cnpj, periodo)
+    contract = pgdas_service.consultar_pgdas(cnpj, periodo)
+    data = dict(contract.get("data") or {})
+    data.update(
+        {
+            "modo": contract.get("mode"),
+            "provider": contract.get("provider"),
+            "errors": contract.get("errors") or [],
+        }
+    )
     return envelope(data, **data)
 
 
 @app.get("/api/integracoes/sefaz/nfe")
 def integracao_sefaz_nfe(cnpj: str, periodo: str | None = None, authorization: str | None = Header(default=None)):
     enforce_module_permission("integracoes", authorization)
-    data = sefaz_service.consultar_nfe(cnpj, periodo)
+    contract = sefaz_service.consultar_nfe(cnpj, periodo)
+    data = dict(contract.get("data") or {})
+    data.update(
+        {
+            "modo": contract.get("mode"),
+            "provider": contract.get("provider"),
+            "errors": contract.get("errors") or [],
+        }
+    )
     return envelope(data, total=len(data.get("documentos", [])), **data)
 
 
@@ -2588,6 +2616,12 @@ def api_jobs(limit: int = 100, status_filter: str | None = None, job_type: str |
     if job_type:
         query["job_type"] = job_type
     return envelope(data, total=safe_count("jobs", query), jobs=data)
+
+
+@app.get("/api/jobs/metrics")
+def api_jobs_metrics():
+    data = async_job_metrics()
+    return envelope(data, **data)
 
 
 @app.get("/api/jobs/{item_id}")
