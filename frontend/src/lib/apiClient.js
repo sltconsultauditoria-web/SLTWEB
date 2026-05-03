@@ -3,6 +3,7 @@ import axios from "axios";
 export const resolveApiBaseUrl = () => {
   const envUrl = process.env.REACT_APP_API_URL;
   if (!envUrl || envUrl.trim() === "") {
+    console.error("REACT_APP_API_URL não configurado");
     throw new Error("REACT_APP_API_URL não configurado");
   }
   const cleanUrl = envUrl.replace(/\/+$/, "");
