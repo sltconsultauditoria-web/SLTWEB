@@ -447,6 +447,30 @@ def process_job(job_id: str) -> dict[str, Any]:
         else:
             result = {"message": "Job executado sem handler especifico", "payload": job.get("payload")}
 
+        max_attempts = int(job.get("max_attempts") or 3)
+        if job_type == "notification_dispatch" and result.get("retrying") and attempts < max_attempts:
+            retry_at = None
+            retry_logs = [
+                item.get("next_retry_at")
+                for item in result.get("retrying", [])
+                if item.get("next_retry_at")
+            ]
+            if retry_logs:
+                retry_at = retry_logs[0]
+            updated = update_job(
+                job_id,
+                {
+                    "status": "pending",
+                    "attempts": attempts + 1,
+                    "result": result,
+                    "error": None,
+                    "next_retry_at": retry_at or now(),
+                    "duration_ms": int((perf_counter() - started) * 1000),
+                },
+            )
+            enqueue_job(job_id)
+            return updated
+
         finished = update_job(
             job_id,
             {

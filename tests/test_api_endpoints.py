@@ -285,6 +285,7 @@ def wait_for_job(client, job_id, timeout=5.0):
         ("GET", "/api/notificacoes/channels", {}),
         ("GET", "/api/notificacoes/preferences", {}),
         ("GET", "/api/notificacoes/logs", {}),
+        ("GET", "/api/notificacoes/metrics", {}),
         ("GET", "/api/notificacoes/email/config", {}),
         ("GET", "/api/notificacoes/email/logs", {}),
         ("GET", "/api/subscriptions/plans", {}),
@@ -756,7 +757,14 @@ def test_manual_alert_creation_queues_email_notification(client):
     wait_for_job(client, jobs[0]["id"])
 
     logs = client.get("/api/notificacoes/logs", follow_redirects=False).json()["data"]
-    assert any(item["tipo"] == "alerta" and item["channel"] == "email" and "fiscal@empresa.com" in item["targets"] for item in logs)
+    assert any(
+        item["tipo"] == "alerta"
+        and item["channel"] == "email"
+        and item["recipient"].startswith("fi***")
+        and item["payload_hash"]
+        and item["attempts"] == 1
+        for item in logs
+    )
 
 
 def test_multichannel_notification_preferences_and_test_log_without_config(client):
@@ -793,7 +801,13 @@ def test_multichannel_notification_preferences_and_test_log_without_config(clien
     wait_for_job(client, job["id"])
 
     logs = client.get("/api/notificacoes/logs", params={"channel": "whatsapp"}, follow_redirects=False).json()["data"]
-    assert any(item["mode"] == "log_only" and item["reason"] == "whatsapp_not_configured" for item in logs)
+    assert any(item["mode"] == "log_only" and item["reason"] == "whatsapp_not_configured" and item["recipient"].startswith("***") for item in logs)
+
+    metrics = client.get("/api/notificacoes/metrics", follow_redirects=False).json()["data"]
+    assert "total_enviados" in metrics
+    assert "total_erros" in metrics
+    assert "tempo_medio_envio" in metrics
+    assert "canais_ativos" in metrics
 
 
 def test_configured_whatsapp_channel_sends(monkeypatch):
@@ -807,6 +821,133 @@ def test_configured_whatsapp_channel_sends(monkeypatch):
     result = WhatsAppChannel().send({"mensagem": "Teste"}, ["+5511999999999"])
     assert result["sent"] is True
     assert result["mode"] == "http"
+
+
+def test_notification_dispatch_idempotency_prevents_duplicate_send(monkeypatch):
+    from backend.services import notification_service
+
+    db = make_db()
+    sent = {"count": 0}
+
+    def fake_send(notification, targets):
+        sent["count"] += 1
+        return {"channel": "email", "sent": True, "mode": "smtp", "reason": None, "targets": targets}
+
+    monkeypatch.setattr(notification_service.CHANNELS["email"], "send", fake_send)
+    notification = {
+        "subject": "Alerta critico",
+        "targets": {"email": ["fiscal@empresa.com"]},
+        "tipo": "alerta",
+        "prioridade": "critica",
+        "mensagem": "Evento critico",
+        "source_id": "event-001",
+    }
+
+    first = notification_service.dispatch_notification(db, "job-1", notification)
+    second = notification_service.dispatch_notification(db, "job-2", notification)
+
+    assert sent["count"] == 1
+    assert first["channels"][0]["status"] == "success"
+    assert second["channels"][0]["status"] == "skipped"
+    assert second["channels"][0]["reason"] == "duplicate_success"
+
+
+def test_notification_retry_and_internal_alert_after_repeated_failure(monkeypatch):
+    from backend.services import notification_service
+
+    db = make_db()
+
+    def failing_send(notification, targets):
+        return {"channel": "whatsapp", "sent": False, "mode": "http", "reason": "delivery_failed", "targets": targets}
+
+    monkeypatch.setattr(notification_service.CHANNELS["whatsapp"], "send", failing_send)
+    notification = {
+        "subject": "Alerta critico",
+        "targets": {"whatsapp": ["+5511999999999"]},
+        "tipo": "alerta",
+        "prioridade": "critica",
+        "mensagem": "Evento critico",
+        "source_id": "event-002",
+    }
+
+    first = notification_service.dispatch_notification(db, "job-1", notification)
+    second = notification_service.dispatch_notification(db, "job-1", notification)
+    third = notification_service.dispatch_notification(db, "job-1", notification)
+
+    assert first["retrying"]
+    assert second["retrying"]
+    assert third["errors"]
+    logs = list(db["notification_logs"].find({"channel": "whatsapp"}))
+    assert [item["attempts"] for item in logs] == [1, 2, 3]
+    assert logs[0]["next_retry_at"]
+    assert logs[-1]["status"] == "error"
+    assert db["pipeline_events"].count_documents({"origem": "notifications", "severidade": "critica"}) == 1
+    assert db["alertas"].count_documents({"prioridade": "critica"}) >= 1
+
+
+def test_notification_rate_limit_retries(monkeypatch):
+    from backend.services import notification_service
+
+    db = make_db()
+    monkeypatch.setenv("NOTIFICATION_EMAIL_RATE_LIMIT_PER_MIN", "1")
+    db["notification_logs"].insert_one(
+        {
+            "channel": "email",
+            "status": "success",
+            "created_at": notification_service.now(),
+            "duration_ms": 10,
+        }
+    )
+    notification = {
+        "subject": "Alerta",
+        "targets": {"email": ["fiscal@empresa.com"]},
+        "tipo": "alerta",
+        "prioridade": "alta",
+        "mensagem": "Evento",
+        "source_id": "event-003",
+    }
+
+    result = notification_service.dispatch_notification(db, "job-1", notification)
+    assert result["retrying"]
+    log = db["notification_logs"].find_one({"reason": "rate_limited"})
+    assert log["status"] == "retrying"
+    assert log["next_retry_at"]
+
+
+def test_worker_requeues_notification_dispatch_retry(client, monkeypatch):
+    from backend.services import notification_service
+    import backend.workers.async_jobs as async_jobs
+
+    def failing_send(notification, targets):
+        return {"channel": "whatsapp", "sent": False, "mode": "http", "reason": "delivery_failed", "targets": targets}
+
+    monkeypatch.setattr(notification_service.CHANNELS["whatsapp"], "send", failing_send)
+    monkeypatch.setattr(async_jobs, "enqueue_job", lambda job_id: None)
+    inserted = app_module.db["jobs"].insert_one(
+        {
+            "job_type": "notification_dispatch",
+            "status": "pending",
+            "attempts": 0,
+            "max_attempts": 3,
+            "payload": {
+                "notification": {
+                    "subject": "Alerta",
+                    "targets": {"whatsapp": ["+5511999999999"]},
+                    "tipo": "alerta",
+                    "prioridade": "alta",
+                    "mensagem": "Evento",
+                    "source_id": "worker-retry-001",
+                }
+            },
+            "created_at": app_module.now(),
+            "updated_at": app_module.now(),
+        }
+    )
+
+    result = async_jobs.process_job(str(inserted.inserted_id))
+    assert result["status"] == "pending"
+    assert result["attempts"] == 2
+    assert result["next_retry_at"]
 
 
 def test_realtime_notifications_flow(client):

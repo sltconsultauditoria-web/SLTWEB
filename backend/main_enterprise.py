@@ -24,6 +24,7 @@ from backend.services.email_service import public_smtp_config
 from backend.services.notification_service import (
     get_notification_channels,
     list_notification_preferences,
+    notification_metrics,
     queue_notification_dispatch,
     save_notification_preferences,
 )
@@ -1869,6 +1870,7 @@ def dashboard():
         "last_status": PIPELINE_RUNTIME_STATE.get("last_status"),
         "last_error": PIPELINE_RUNTIME_STATE.get("last_error"),
     }
+    notificacoes_metrics = notification_metrics(db)
     saude_fiscal = fiscal_health_score(
         {
             "eventos_criticos": eventos_criticos,
@@ -1908,6 +1910,10 @@ def dashboard():
         "eventos_total": safe_count("pipeline_events"),
         "saude_fiscal": saude_fiscal,
         "pipeline_status": pipeline_status,
+        "notificacoes": notificacoes_metrics,
+        "notificacoes_enviadas_hoje": notificacoes_metrics.get("enviadas_hoje", 0),
+        "notificacoes_falhas": notificacoes_metrics.get("falhas", 0),
+        "notificacoes_taxa_sucesso": notificacoes_metrics.get("taxa_sucesso", 0),
         "receita_bruta_mes": 0,
         "despesa_mensal": 0,
         "usuariosOnline": 0,
@@ -2900,6 +2906,12 @@ def get_notification_logs(limit: int = 100, channel: str | None = None):
     logs = list(db["notification_logs"].find(query).sort("created_at", -1).limit(limit))
     data = [serialize(item) for item in logs]
     return envelope(data, total=safe_count("notification_logs", query), logs=data)
+
+
+@app.get("/api/notificacoes/metrics")
+def get_notification_metrics():
+    data = notification_metrics(db)
+    return envelope(data, **data)
 
 
 @app.get("/api/notificacoes/email/config")
