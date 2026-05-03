@@ -83,7 +83,7 @@ const normalizeAlertas = (items) => {
   return items.map(normalizeAlerta);
 };
 
-const countBadgeAlertas = (items) => normalizeAlertas(items).filter(isUnreadAlert).length;
+const countBadgeAlertas = (items) => normalizeAlertas(items).filter((alerta) => !isReadAlert(alerta)).length;
 
 const countCriticalAlertas = (items) => normalizeAlertas(items).filter(isCriticalAlert).length;
 

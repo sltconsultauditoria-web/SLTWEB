@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { Bell } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { api } from "@/context/AuthContext";
@@ -7,28 +7,50 @@ import { countBadgeAlertas, formatBadgeCount, normalizeAlertas } from "@/lib/ale
 function NotificationBell() {
   const [count, setCount] = useState(0);
 
+  const carregarAlertas = useCallback(async () => {
+    try {
+      const response = await api.get("/alertas");
+      const payload = response.data;
+      const items = Array.isArray(payload)
+        ? payload
+        : Array.isArray(payload?.data)
+          ? payload.data
+          : Array.isArray(payload?.alertas)
+            ? payload.alertas
+            : [];
+
+      setCount(countBadgeAlertas(normalizeAlertas(items)));
+    } catch (error) {
+      setCount(0);
+    }
+  }, []);
+
   useEffect(() => {
     let mounted = true;
+    let intervalId = null;
 
-    const carregarAlertas = async () => {
-      try {
-        const response = await api.get("/alertas");
-        if (!mounted) return;
-        const items = normalizeAlertas(Array.isArray(response.data) ? response.data : []);
-        setCount(countBadgeAlertas(items));
-      } catch (error) {
-        if (mounted) {
-          setCount(0);
-        }
+    const run = async () => {
+      if (!mounted) return;
+      await carregarAlertas();
+    };
+
+    run();
+    intervalId = window.setInterval(run, 30000);
+
+    const handleVisibilityChange = () => {
+      if (document.visibilityState === "visible") {
+        run();
       }
     };
 
-    carregarAlertas();
+    document.addEventListener("visibilitychange", handleVisibilityChange);
 
     return () => {
       mounted = false;
+      if (intervalId) window.clearInterval(intervalId);
+      document.removeEventListener("visibilitychange", handleVisibilityChange);
     };
-  }, []);
+  }, [carregarAlertas]);
 
   const badgeValue = formatBadgeCount(count);
 

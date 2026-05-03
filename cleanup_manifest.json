@@ -1,0 +1,210 @@
+{
+  "generated_at": "2026-05-03",
+  "scope": "cleanup_planning_only",
+  "notes": [
+    "Nenhuma remoção foi executada.",
+    "O plano prioriza reversibilidade e preserva o que é necessário para rodar a aplicação.",
+    "Itens com dados sensiveis devem ser revisados antes de qualquer move/remove."
+  ],
+  "root_classification": [
+    {
+      "category": "ESSENTIAL",
+      "action": "keep",
+      "risk": "low",
+      "items": [
+        ".git",
+        ".gitignore",
+        "backend",
+        "frontend",
+        "tests"
+      ],
+      "justification": "Base da aplicacao e controle de versao."
+    },
+    {
+      "category": "DEV_QA",
+      "action": "keep_or_archive",
+      "risk": "low",
+      "items": [
+        "api_status_report.md",
+        "guardian_report_after_fix.json",
+        "healthcheck_correlacao.json",
+        "impacto_dashboard_update.json",
+        "relatorio_hotfix_final.json",
+        "relatorio_preparo_tailadmin_ocr.json",
+        "relatorio_tailadmin_ocr_v2.json",
+        "relatorio_upgrade_real.json",
+        "relatorio_validacao_final.json",
+        "relatorio_verificacao_tailadmin_ocr.json"
+      ],
+      "justification": "Relatorios de auditoria e validacao podem ser arquivados depois de revisao."
+    },
+    {
+      "category": "BACKUP",
+      "action": "archive",
+      "risk": "low",
+      "items": [
+        "_BACKUPS",
+        "_HOTFIX_BACKUP",
+        "_PATCH_BACKUP",
+        "_UPGRADE_BACKUPS",
+        "_VERSION_BACKUP",
+        "backup_precheck",
+        "backup_pre_mocks_endpoints_masks_20260502_200553",
+        "backup_pre_tailadmin_ocr_20260502_194751",
+        "backend/main_enterprise.py.bak_20260501_113934",
+        "backend/main_enterprise_backup_20260501_122550.py"
+      ],
+      "justification": "Historico de backup. Melhor mover para archive/backups antes de remover qualquer coisa."
+    },
+    {
+      "category": "TEMP_CACHE",
+      "action": "remove_after_confirmation",
+      "risk": "low",
+      "items": [
+        "pytest-cache-files-_werxzht",
+        "pytest-cache-files-d03dnjxm",
+        "pytest-cache-files-yih5w09m"
+      ],
+      "justification": "Caches temporarios de pytest sem valor funcional."
+    },
+    {
+      "category": "LEGADO",
+      "action": "archive",
+      "risk": "low",
+      "items": [
+        "ajuste_total_consultsltweb.py",
+        "analisar_impacto_integracao.py",
+        "analisar_preparo_tailadmin_ocr.py",
+        "backend_second_validation.py",
+        "backend_second_validation_v3.py",
+        "backend_second_validation_v4.py",
+        "backup_total_consultsltweb.py",
+        "beneficios_tailadmin_ocr.py",
+        "check_frontend_routes.py",
+        "corrigir_dashboard_real.py",
+        "diagnostico_backend_frontend.py",
+        "diagnostico_fastapi_rotas.py",
+        "fix_apis_500_consultslt.py",
+        "hotfix_alertas_obrigacoes_consultsltweb.py",
+        "integracao_total_mongodb.py",
+        "integracao_total_sltweb.py",
+        "patch_final_consultsltweb.py",
+        "patch_login_consultsltweb.py",
+        "safe_backend_audit.py",
+        "segunda_validacao_pre_ajuste.py",
+        "telebranca.py",
+        "upgrade_enterprise_consultsltweb.py",
+        "upgrade_sem_reinventar_rotas.py",
+        "upgrade_total_consultslt.py",
+        "validar_hotfix_alertas_obrigacoes.py",
+        "validar_patch_final_consultsltweb.py",
+        "verificar_antes_alterar.py",
+        "verificar_atualizacao_tailadmin_ocr.py",
+        "verificar_correlacao_total.py",
+        "verificar_ecossistema_total.py",
+        "verificar_impacto_dashboard_update.py",
+        "verificar_tailadmin_ocr_v2.py",
+        "verificar_upgrade_enterprise_consultsltweb.py"
+      ],
+      "justification": "Scripts de diagnostico, patch e validacao historicos. Mover para archive/scripts para manter a raiz limpa."
+    },
+    {
+      "category": "RISK",
+      "action": "do_not_move",
+      "risk": "high",
+      "items": [
+        "frontend/.env",
+        "frontend/.env.bak_20260501_113934",
+        "frontend/build",
+        "frontend/node_modules",
+        "backend/venv",
+        ".git"
+      ],
+      "justification": "Pode afetar segredos, ambiente local ou referencia de desenvolvimento. Exige revisao antes de qualquer acao."
+    }
+  ],
+  "nested_items": [
+    {
+      "path": "frontend/package.json",
+      "category": "ESSENTIAL",
+      "action": "keep",
+      "risk": "low",
+      "justification": "Scripts e dependencias do frontend."
+    },
+    {
+      "path": "frontend/package-lock.json",
+      "category": "ESSENTIAL",
+      "action": "keep",
+      "risk": "low",
+      "justification": "Lockfile necessario para reproducao."
+    },
+    {
+      "path": "frontend/craco.config.js",
+      "category": "ESSENTIAL",
+      "action": "keep",
+      "risk": "low",
+      "justification": "Configuracao do build do frontend."
+    },
+    {
+      "path": "frontend/postcss.config.js",
+      "category": "ESSENTIAL",
+      "action": "keep",
+      "risk": "low",
+      "justification": "Pipeline de estilos."
+    },
+    {
+      "path": "frontend/tailwind.config.js",
+      "category": "ESSENTIAL",
+      "action": "keep",
+      "risk": "low",
+      "justification": "Tema e utilitarios CSS."
+    },
+    {
+      "path": "frontend/jsconfig.json",
+      "category": "ESSENTIAL",
+      "action": "keep",
+      "risk": "low",
+      "justification": "Aliases e resolucao do frontend."
+    },
+    {
+      "path": "frontend/public",
+      "category": "ESSENTIAL",
+      "action": "keep",
+      "risk": "low",
+      "justification": "Assets publicos da aplicacao."
+    },
+    {
+      "path": "frontend/src",
+      "category": "ESSENTIAL",
+      "action": "keep",
+      "risk": "low",
+      "justification": "Codigo fonte da interface."
+    },
+    {
+      "path": "backend/__pycache__",
+      "category": "TEMP_CACHE",
+      "action": "remove",
+      "risk": "low",
+      "justification": "Cache Python regeneravel."
+    },
+    {
+      "path": "tests/__pycache__",
+      "category": "TEMP_CACHE",
+      "action": "remove",
+      "risk": "low",
+      "justification": "Cache Python regeneravel."
+    }
+  ],
+  "safe_to_delete": [
+    "pytest-cache-files-_werxzht",
+    "pytest-cache-files-d03dnjxm",
+    "pytest-cache-files-yih5w09m",
+    "backend/__pycache__",
+    "tests/__pycache__"
+  ],
+  "archive_targets": [
+    "archive/backups/",
+    "archive/reports/",
+    "archive/scripts/"
+  ]
+}
