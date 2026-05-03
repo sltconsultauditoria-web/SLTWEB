@@ -455,3 +455,46 @@ def test_export_relatorios_pdf_and_excel(client):
     assert excel_response.status_code == 200
     assert "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" in excel_response.headers["content-type"]
     assert excel_response.content[:2] == b"PK"
+
+
+def test_realtime_notifications_flow(client):
+    empresa_id = str(app_module.db["empresas"].items[0]["_id"])
+    before_dashboard = client.get("/api/dashboard", follow_redirects=False).json()["data"]
+    before_events = before_dashboard["eventos_total"]
+    before_alertas = before_dashboard["alertas"]
+
+    with client.websocket_connect("/ws/notificacoes") as ws:
+        response = client.post(
+            "/api/events",
+            json={
+                "origem": "fiscal",
+                "tipo": "vencimento",
+                "empresa_id": empresa_id,
+                "severidade": "critica",
+                "titulo": "Certidao vencendo",
+                "descricao": "Certidao fiscal vence hoje",
+                "payload": {"empresa_id": empresa_id, "origem": "fiscal"},
+                "referencia": f"rt-{ObjectId()}",
+            },
+            follow_redirects=False,
+        )
+        assert response.status_code == 200
+        created = response.json()["data"]
+        assert created["severidade"] == "critica"
+
+        mensagens = [ws.receive_json(), ws.receive_json()]
+        tipos = {msg["tipo"] for msg in mensagens}
+        severidades = {msg["severidade"] for msg in mensagens}
+        assert "evento" in tipos
+        assert "alerta" in tipos
+        assert severidades == {"critica"}
+        assert all(msg["empresa_id"] == empresa_id for msg in mensagens)
+
+    after_dashboard = client.get("/api/dashboard", follow_redirects=False).json()["data"]
+    assert after_dashboard["eventos_total"] >= before_events + 1
+    assert after_dashboard["alertas"] >= before_alertas + 1
+
+    alertas_response = client.get("/api/alertas", follow_redirects=False)
+    assert alertas_response.status_code == 200
+    alertas_payload = alertas_response.json()["data"]
+    assert any(alerta["empresa_id"] == empresa_id for alerta in alertas_payload)
