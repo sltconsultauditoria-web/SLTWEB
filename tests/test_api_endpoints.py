@@ -1,4 +1,5 @@
 from copy import deepcopy
+import time
 
 import pytest
 from bson import ObjectId
@@ -200,6 +201,7 @@ def make_db():
         "subscription_plans": FakeCollection([]),
         "tenants": FakeCollection([]),
         "roles_permissions": FakeCollection([]),
+        "jobs": FakeCollection([]),
         "usuarios": FakeCollection([]),
         "fiscal_data": FakeCollection([]),
         }
@@ -211,6 +213,19 @@ def client(monkeypatch):
     monkeypatch.setattr(app_module, "db", make_db())
     monkeypatch.setattr(app_module, "client", FakeClient())
     return TestClient(app_module.app)
+
+
+def wait_for_job(client, job_id, timeout=5.0):
+    deadline = time.time() + timeout
+    last_payload = None
+    while time.time() < deadline:
+        response = client.get(f"/api/jobs/{job_id}", follow_redirects=False)
+        assert response.status_code == 200
+        last_payload = response.json()["data"]
+        if str(last_payload.get("status")) in {"done", "error"}:
+            return last_payload
+        time.sleep(0.1)
+    return last_payload
 
 
 @pytest.mark.parametrize(
@@ -242,6 +257,7 @@ def client(monkeypatch):
         ("GET", "/api/integracoes/ecac/debitos", {"params": {"cnpj": "12345678000100"}}),
         ("GET", "/api/integracoes/pgdas/consultar", {"params": {"cnpj": "12345678000100"}}),
         ("GET", "/api/integracoes/sefaz/nfe", {"params": {"cnpj": "12345678000100"}}),
+        ("GET", "/api/jobs", {}),
         ("GET", "/api/subscriptions/plans", {}),
         ("GET", "/api/tenants", {}),
         ("GET", "/api/rbac/roles-permissions", {}),
@@ -343,10 +359,17 @@ def test_pipeline_run_generates_events_alerts_and_logs(client):
 
     response = client.post("/api/fiscal/pipeline/run", follow_redirects=False)
     assert response.status_code == 200
-    summary = response.json()["data"]
+    job = response.json()["data"]
+    assert job["job_type"] == "fiscal_pipeline"
+    assert job["status"] in {"pending", "processing", "done"}
+
+    completed = wait_for_job(client, job["id"], timeout=10)
+    assert completed["status"] == "done"
+    summary = completed["result"]["summary"]
     assert summary["status"] == "sucesso"
     assert summary["eventos_gerados"] >= 3
     assert summary["alertas_gerados"] >= 2
+    assert completed["result"]["decisions_created"] >= 1
 
     after_events = app_module.db["pipeline_events"].count_documents({})
     after_alerts = app_module.db["alertas"].count_documents({})
@@ -482,10 +505,16 @@ def test_ocr_process_and_ai_analyze(client):
     )
     assert response.status_code == 200
     payload = response.json()["data"]
-    assert payload["status"] == "done"
-    assert payload["dados_extraidos"]["cnpj"] == "12345678000100"
-    assert payload["dados_extraidos"]["valor"] == 1234.56
-    assert str(payload["dados_extraidos"]["vencimento"]).startswith("2026-05-10")
+    assert payload["job_type"] == "ocr_process"
+    assert payload["status"] in {"pending", "processing", "done"}
+
+    job = wait_for_job(client, payload["id"])
+    assert job["status"] == "done"
+    result = job["result"]["ocr_documento"]
+    assert result["status"] == "done"
+    assert result["dados_extraidos"]["cnpj"] == "12345678000100"
+    assert result["dados_extraidos"]["valor"] == 1234.56
+    assert str(result["dados_extraidos"]["vencimento"]).startswith("2026-05-10")
     assert app_module.db["ocr_process_logs"].count_documents({}) >= 1
 
     ai_response = client.post(
@@ -502,6 +531,7 @@ def test_integrations_and_decisions_flow(client):
     ecac_status = client.get("/api/integracoes/ecac/status", params={"cnpj": "12345678000100"}, follow_redirects=False)
     assert ecac_status.status_code == 200
     assert ecac_status.json()["data"]["cnpj"] == "12345678000100"
+    assert ecac_status.json()["data"]["modo"] == "simulado"
 
     ecac_debitos = client.get("/api/integracoes/ecac/debitos", params={"cnpj": "12345678000100"}, follow_redirects=False)
     assert ecac_debitos.status_code == 200
@@ -510,10 +540,12 @@ def test_integrations_and_decisions_flow(client):
     pgdas = client.get("/api/integracoes/pgdas/consultar", params={"cnpj": "12345678000100"}, follow_redirects=False)
     assert pgdas.status_code == 200
     assert pgdas.json()["data"]["cnpj"] == "12345678000100"
+    assert pgdas.json()["data"]["modo"] == "simulado"
 
     sefaz = client.get("/api/integracoes/sefaz/nfe", params={"cnpj": "12345678000100"}, follow_redirects=False)
     assert sefaz.status_code == 200
     assert isinstance(sefaz.json()["data"]["documentos"], list)
+    assert sefaz.json()["data"]["modo"] == "simulado"
 
     event_response = client.post(
         "/api/events",
@@ -541,6 +573,11 @@ def test_integrations_and_decisions_flow(client):
     executed = execute_response.json()["data"]
     assert executed["status"] == "executado"
 
+    jobs_response = client.get("/api/jobs", follow_redirects=False)
+    assert jobs_response.status_code == 200
+    jobs_payload = jobs_response.json()["data"]
+    assert isinstance(jobs_payload, list)
+
 
 def test_dashboard_analytics_has_risk_and_trends(client):
     response = client.get("/api/dashboard/analytics", follow_redirects=False)
@@ -549,6 +586,20 @@ def test_dashboard_analytics_has_risk_and_trends(client):
     assert "tendencia_mensal" in payload
     assert "ranking_risco" in payload
     assert "saude_fiscal" in payload
+
+
+def test_job_retry_and_status_flow(client):
+    created = client.post(
+        "/api/ocr/process",
+        json={"nome_arquivo": "arquivo.pdf", "texto": "CNPJ 12.345.678/0001-00"},
+        follow_redirects=False,
+    ).json()["data"]
+    job = wait_for_job(client, created["id"])
+    assert job["status"] == "done"
+    retry = client.post(f"/api/jobs/{created['id']}/retry", follow_redirects=False)
+    assert retry.status_code == 200
+    retried = wait_for_job(client, created["id"])
+    assert retried["status"] == "done"
 
 
 def test_monetization_and_rbac_endpoints(client):

@@ -20,6 +20,7 @@ from backend.integrations.government.pgdas_service import PGDAService
 from backend.integrations.government.sefaz_service import SEFAZService
 from backend.core.security import create_access_token, decode_access_token
 from backend.services.decision_engine import DecisionEngine
+from backend.workers.async_jobs import create_job, list_jobs as list_async_jobs, load_job as load_async_job, retry_job as retry_async_job
 
 app = FastAPI(title="CONSULTSLT ENTERPRISE")
 
@@ -2135,16 +2136,14 @@ async def upload_ocr(file: UploadFile = File(...)):
 @app.post("/api/ocr/process")
 def process_ocr(payload: dict, authorization: str | None = Header(default=None)):
     enforce_module_permission("ocr", authorization)
-    document_id = str(payload.get("id") or payload.get("ocr_id") or payload.get("documento_id") or "").strip() or None
-    existing_document = None
-    if document_id:
-        existing_document = db["ocr_documentos"].find_one(object_query(document_id))
-    if not existing_document and isinstance(payload.get("documento"), dict):
-        existing_document = payload["documento"]
-    processed = process_ocr_payload(payload, existing_document)
-    stored = persist_ocr_document(processed, existing_id=document_id)
-    log_ocr_processing(document_id, payload, stored)
-    return envelope(stored, **stored)
+    job = create_job(
+        "ocr_process",
+        {
+            "source": "ocr",
+            "payload": payload,
+        },
+    )
+    return envelope(job, **job)
 
 
 @app.post("/api/ocr/ai-analyze")
@@ -2539,9 +2538,13 @@ def calcular_fator_r(payload: dict):
 
 @app.post("/api/fiscal/pipeline/run")
 def fiscal_pipeline_run():
-    result = run_fiscal_pipeline_safe()
-    summary = result.get("summary") or {}
-    return envelope(summary, total=1, **summary)
+    job = create_job(
+        "fiscal_pipeline",
+        {
+            "source": "pipeline",
+        },
+    )
+    return envelope(job, **job)
 
 
 @app.get("/api/fiscal/pipeline/status")
@@ -2574,6 +2577,35 @@ def fiscal_pipeline_logs(limit: int = 100):
     except Exception:
         data = []
     return envelope(data, total=safe_count("fiscal_pipeline_logs"), logs=data)
+
+
+@app.get("/api/jobs")
+def api_jobs(limit: int = 100, status_filter: str | None = None, job_type: str | None = None):
+    data = list_async_jobs(limit=limit, status=status_filter, job_type=job_type)
+    query: dict[str, Any] = {}
+    if status_filter:
+        query["status"] = status_filter
+    if job_type:
+        query["job_type"] = job_type
+    return envelope(data, total=safe_count("jobs", query), jobs=data)
+
+
+@app.get("/api/jobs/{item_id}")
+def api_job_detail(item_id: str):
+    job = load_async_job(item_id)
+    if not job:
+        raise HTTPException(status_code=404, detail="Job nao encontrado")
+    data = serialize(job)
+    return envelope(data, **data)
+
+
+@app.post("/api/jobs/{item_id}/retry")
+def api_job_retry(item_id: str):
+    try:
+        job = retry_async_job(item_id)
+    except ValueError as exc:
+        raise HTTPException(status_code=404, detail=str(exc))
+    return envelope(job, **job)
 
 
 @app.post("/api/auth/forgot-password")

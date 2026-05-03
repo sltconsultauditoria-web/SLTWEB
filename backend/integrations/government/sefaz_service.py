@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import os
 from datetime import datetime, timedelta
 from hashlib import sha1
 from typing import Any
@@ -15,7 +16,12 @@ def _seed(cnpj: str, periodo: str | None = None) -> int:
 
 
 class SEFAZService:
-    """Simulador determinístico de consultas SEFAZ / NFe."""
+    """Deterministic SEFAZ / NFe connector with real-mode flags."""
+
+    def __init__(self) -> None:
+        self.api_url = os.environ.get("SEFAZ_API_URL")
+        self.api_key = os.environ.get("SEFAZ_API_KEY")
+        self.real_mode = bool(self.api_url and self.api_key)
 
     def consultar_nfe(self, cnpj: str, periodo: str | None = None) -> dict[str, Any]:
         seed = _seed(cnpj, periodo)
@@ -42,5 +48,6 @@ class SEFAZService:
             "total_documentos": total_documentos,
             "documentos": documentos,
             "atualizado_em": datetime.utcnow().isoformat(),
+            "modo": "real" if self.real_mode else "simulado",
         }
 

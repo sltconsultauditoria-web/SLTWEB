@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import os
 from datetime import datetime, timedelta
 from hashlib import sha1
 from typing import Any
@@ -15,7 +16,13 @@ def _seed(cnpj: str, periodo: str | None = None) -> int:
 
 
 class PGDAService:
-    """Simulador determinístico de consulta PGDAS."""
+    """Deterministic PGDAS connector with real-mode flags."""
+
+    def __init__(self) -> None:
+        self.username = os.environ.get("PGDAS_USERNAME")
+        self.password = os.environ.get("PGDAS_PASSWORD")
+        self.base_url = os.environ.get("PGDAS_BASE_URL")
+        self.real_mode = bool(self.username and self.password and self.base_url)
 
     def consultar(self, cnpj: str, periodo: str | None = None) -> dict[str, Any]:
         seed = _seed(cnpj, periodo)
@@ -34,5 +41,6 @@ class PGDAService:
             "proximo_vencimento": (datetime.utcnow().date() + timedelta(days=10 + (seed % 20))).isoformat(),
             "pendencias_pgdas": 1 if vencido else 0,
             "atualizado_em": datetime.utcnow().isoformat(),
+            "modo": "real" if self.real_mode else "simulado",
         }
 

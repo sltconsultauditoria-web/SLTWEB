@@ -7,6 +7,12 @@ services:
     volumes:
       - mongo_data:/data/db
 
+  redis:
+    image: redis:7-alpine
+    restart: unless-stopped
+    ports:
+      - "6379:6379"
+
   backend:
     build:
       context: .
@@ -17,8 +23,11 @@ services:
     environment:
       MONGO_URL: ${MONGO_URL:-mongodb://mongo:27017/consultslt_db}
       DB_NAME: ${DB_NAME:-consultslt_db}
+      REDIS_URL: ${REDIS_URL:-redis://redis:6379/0}
+      ASYNC_USE_REDIS: ${ASYNC_USE_REDIS:-1}
     depends_on:
       - mongo
+      - redis
     ports:
       - "8000:8000"
 
@@ -31,6 +40,24 @@ services:
       - "3000:80"
     depends_on:
       - backend
+
+  worker:
+    build:
+      context: .
+      dockerfile: backend/Dockerfile
+    restart: unless-stopped
+    command: ["python", "-m", "backend.worker"]
+    env_file:
+      - .env
+    environment:
+      MONGO_URL: ${MONGO_URL:-mongodb://mongo:27017/consultslt_db}
+      DB_NAME: ${DB_NAME:-consultslt_db}
+      REDIS_URL: ${REDIS_URL:-redis://redis:6379/0}
+      ASYNC_USE_REDIS: ${ASYNC_USE_REDIS:-1}
+      WORKER_POLL_INTERVAL_SECONDS: ${WORKER_POLL_INTERVAL_SECONDS:-1}
+    depends_on:
+      - mongo
+      - redis
 
 volumes:
   mongo_data:

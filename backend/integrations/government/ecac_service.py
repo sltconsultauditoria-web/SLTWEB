@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import os
 from datetime import datetime, timedelta
 from hashlib import sha1
 from typing import Any
@@ -15,7 +16,13 @@ def _seed(cnpj: str) -> int:
 
 
 class GovernmentECACService:
-    """Simulador determinístico de consultas e-CAC."""
+    """Deterministic e-CAC connector with real-mode flags."""
+
+    def __init__(self) -> None:
+        self.client_id = os.environ.get("ECAC_CLIENT_ID")
+        self.client_secret = os.environ.get("ECAC_CLIENT_SECRET")
+        self.base_url = os.environ.get("ECAC_BASE_URL")
+        self.real_mode = bool(self.client_id and self.client_secret and self.base_url)
 
     def status(self, cnpj: str) -> dict[str, Any]:
         seed = _seed(cnpj)
@@ -31,6 +38,7 @@ class GovernmentECACService:
             "certidoes_vencendo": certidoes_vencendo,
             "score_risco": score_risco,
             "atualizado_em": datetime.utcnow().isoformat(),
+            "modo": "real" if self.real_mode else "simulado",
         }
 
     def debitos(self, cnpj: str) -> list[dict[str, Any]]:
@@ -46,7 +54,7 @@ class GovernmentECACService:
                     "cnpj": _digits(cnpj),
                     "origem": "eCAC",
                     "tipo": "tributario",
-                    "descricao": f"Débito federal simulado {index + 1}",
+                    "descricao": f"Debito federal simulado {index + 1}",
                     "valor": amount,
                     "vencimento": (today - timedelta(days=(index * 7) + (seed % 14))).isoformat(),
                     "status": "aberto" if index % 2 == 0 else "pendente",
@@ -96,6 +104,7 @@ class GovernmentECACService:
                 "dirf": 0,
             },
             "score_risco": status["score_risco"],
-            "nivel_risco": "CRITICO" if status["score_risco"] >= 70 else "ALTO" if status["score_risco"] >= 40 else "MÉDIO" if status["score_risco"] >= 20 else "BAIXO",
+            "nivel_risco": "CRITICO" if status["score_risco"] >= 70 else "ALTO" if status["score_risco"] >= 40 else "MEDIO" if status["score_risco"] >= 20 else "BAIXO",
+            "modo": "real" if self.real_mode else "simulado",
         }
 
