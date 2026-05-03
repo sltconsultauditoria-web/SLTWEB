@@ -2760,7 +2760,10 @@ def update_alert_recipient(item_id: str, payload: dict):
 
 @app.delete("/api/alerts/recipients/{item_id}")
 def delete_alert_recipient(item_id: str):
-    result = db["alerts_recipients"].delete_one(object_query(item_id))
+    query = object_query(item_id)
+    result = db["alerts_recipients"].delete_one(query)
+    if result.deleted_count == 0 and query.get("_id") is not None:
+        result = db["alerts_recipients"].delete_one({"id": item_id})
     if result.deleted_count == 0:
         raise HTTPException(status_code=404, detail="Registro nao encontrado")
     register_alert_history("recipient_deleted", {"id": item_id})
