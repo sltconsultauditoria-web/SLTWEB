@@ -17,6 +17,7 @@ import Robos from "@/pages/Robos";
 import Fiscal from "@/pages/Fiscal";
 import Auditoria from "@/pages/Auditoria";
 import OCR from "@/pages/OCR";
+import TimelineEmpresa from "@/pages/TimelineEmpresa";
 
 function App() {
   return (
@@ -33,6 +34,7 @@ function App() {
             <Route element={<MainLayout />}>
               <Route path="/dashboard" element={<Dashboard />} />
               <Route path="/empresas" element={<Empresas />} />
+              <Route path="/empresas/:empresaId/timeline" element={<TimelineEmpresa />} />
               <Route path="/documentos" element={<Documentos />} />
               <Route path="/obrigacoes" element={<Obrigacoes />} />
               <Route path="/guias" element={<Guias />} />

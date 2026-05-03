@@ -1,4 +1,5 @@
 import { useState, useEffect } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -24,7 +25,8 @@ import {
   Trash2, 
   Building2,
   MoreVertical,
-  Eye
+  Eye,
+  Clock3
 } from 'lucide-react';
 import {
   DropdownMenu,
@@ -36,6 +38,7 @@ import { api } from '@/context/AuthContext';
 import InputMask from 'react-input-mask';
 
 const Empresas = () => {
+  const navigate = useNavigate();
   const [empresas, setEmpresas] = useState([]);
   const [searchTerm, setSearchTerm] = useState('');
   const [isModalOpen, setIsModalOpen] = useState(false);
@@ -319,6 +322,9 @@ const Empresas = () => {
                           </DropdownMenuItem>
                           <DropdownMenuItem onClick={() => handleView(empresa)}>
                             <Eye className="h-4 w-4 mr-2" /> Visualizar
+                          </DropdownMenuItem>
+                          <DropdownMenuItem onClick={() => navigate(`/empresas/${empresa.id}/timeline`)}>
+                            <Clock3 className="h-4 w-4 mr-2" /> Timeline
                           </DropdownMenuItem>
                           <DropdownMenuItem onClick={() => handleDelete(empresa.id)} className="text-red-600">
                             <Trash2 className="h-4 w-4 mr-2" /> Excluir

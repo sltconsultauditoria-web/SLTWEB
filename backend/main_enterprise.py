@@ -1,11 +1,14 @@
 from datetime import date, datetime, timedelta
+from io import BytesIO
 import os
 import threading
 import time
 from typing import Any
+import zipfile
+from xml.sax.saxutils import escape as xml_escape
 
 from bson import ObjectId
-from fastapi import FastAPI, File, Header, HTTPException, UploadFile, status
+from fastapi import FastAPI, File, Header, HTTPException, UploadFile, Response, status
 from fastapi.middleware.cors import CORSMiddleware
 from pymongo import MongoClient
 
@@ -414,6 +417,423 @@ def resolve_alert_for_event(event_id: str) -> None:
         {"evento_id": event_id},
         {"$set": {"status": "resolvido", "resolvido": True, "lido": True, "updated_at": now()}},
     )
+
+
+def digits_only(value: Any) -> str:
+    return "".join(ch for ch in str(value or "") if ch.isdigit())
+
+
+def company_reference_values(company: dict[str, Any] | None) -> set[str]:
+    if not company:
+        return set()
+
+    serialized = serialize(company)
+    values = {
+        str(serialized.get("id") or "").strip(),
+        str(serialized.get("_id") or "").strip(),
+        str(serialized.get("cnpj") or "").strip(),
+        digits_only(serialized.get("cnpj")),
+        str(serialized.get("razao_social") or "").strip().lower(),
+        str(serialized.get("nome_fantasia") or "").strip().lower(),
+    }
+    return {value for value in values if value}
+
+
+def matches_company_reference(document: dict[str, Any], company: dict[str, Any] | None) -> bool:
+    if not company:
+        return False
+
+    serialized = serialize(document)
+    company_values = company_reference_values(company)
+    if not company_values:
+        return False
+
+    def collect_candidates(value: Any) -> set[str]:
+        candidates: set[str] = set()
+        if isinstance(value, dict):
+            for key in ("empresa_id", "empresaId", "company_id", "companyId", "empresa", "cnpj", "documento_cnpj", "empresa_cnpj"):
+                candidate = value.get(key)
+                if candidate:
+                    candidates.add(str(candidate).strip())
+                    if key in {"cnpj", "documento_cnpj", "empresa_cnpj"}:
+                        candidates.add(digits_only(candidate))
+        elif isinstance(value, list):
+            for item in value:
+                candidates |= collect_candidates(item)
+        elif value is not None:
+            candidates.add(str(value).strip())
+            candidates.add(digits_only(value))
+        return {candidate for candidate in candidates if candidate}
+
+    candidates = set()
+    for key in (
+        "empresa_id",
+        "empresaId",
+        "company_id",
+        "companyId",
+        "empresa",
+        "cnpj",
+        "documento_cnpj",
+        "empresa_cnpj",
+        "payload",
+        "data",
+        "resultado",
+    ):
+        if key in serialized:
+            candidates |= collect_candidates(serialized.get(key))
+    candidates |= collect_candidates(serialized.get("empresa"))
+
+    lowered = {candidate.lower() for candidate in candidates if candidate}
+    digits = {digits_only(candidate) for candidate in candidates if digits_only(candidate)}
+    return bool(company_values & lowered or company_values & digits)
+
+
+def extract_entry_datetime(document: dict[str, Any]) -> datetime | None:
+    serialized = serialize(document)
+    for key in (
+        "created_at",
+        "createdAt",
+        "updated_at",
+        "updatedAt",
+        "timestamp",
+        "data",
+        "data_evento",
+        "data_processamento",
+        "data_vencimento",
+        "vencimento",
+        "validade",
+        "data_validade",
+        "ultima_execucao",
+    ):
+        parsed = parse_date_like(serialized.get(key))
+        if parsed:
+            if isinstance(serialized.get(key), datetime):
+                return serialized.get(key)
+            return datetime.combine(parsed, datetime.min.time())
+    return None
+
+
+def normalize_timeline_entry(document: dict[str, Any], source: str, company: dict[str, Any] | None = None) -> dict[str, Any]:
+    serialized = serialize(document)
+    payload = serialized.get("payload") if isinstance(serialized.get("payload"), dict) else {}
+    data_payload = serialized.get("data") if isinstance(serialized.get("data"), dict) else {}
+    resultado_payload = serialized.get("resultado") if isinstance(serialized.get("resultado"), dict) else {}
+    fallback_payload = payload or data_payload or resultado_payload or {}
+    payload_status = payload.get("status") if payload else None
+    payload_severidade = payload.get("severidade") if payload else None
+    payload_empresa_id = payload.get("empresa_id") if payload else None
+    status = normalize_event_status(
+        serialized.get("status") or payload_status or data_payload.get("status") or serialized.get("situacao")
+    )
+    severidade = normalize_severidade(
+        serialized.get("severidade") or payload_severidade or data_payload.get("severidade") or serialized.get("prioridade")
+    )
+    timestamp = extract_entry_datetime(serialized)
+    empresa_id = (
+        serialized.get("empresa_id")
+        or serialized.get("empresaId")
+        or payload_empresa_id
+        or data_payload.get("empresa_id")
+    )
+    if not empresa_id and company:
+        empresa_id = company.get("id") or company.get("_id")
+
+    titulo = (
+        serialized.get("titulo")
+        or serialized.get("nome")
+        or serialized.get("nome_arquivo")
+        or serialized.get("tipo")
+        or source.replace("_", " ").title()
+    )
+    descricao = (
+        serialized.get("descricao")
+        or serialized.get("mensagem")
+        or serialized.get("status")
+        or serialized.get("observacao")
+        or ""
+    )
+
+    entry = {
+        "id": serialized.get("id") or serialized.get("_id"),
+        "fonte": source,
+        "origem": str(serialized.get("origem") or source).strip().lower(),
+        "tipo": str(serialized.get("tipo") or source).strip().lower(),
+        "titulo": titulo,
+        "descricao": descricao,
+        "empresa_id": str(empresa_id) if empresa_id is not None else None,
+        "empresa_cnpj": (company.get("cnpj") if company else serialized.get("cnpj")) or serialized.get("empresa_cnpj"),
+        "severidade": severidade,
+        "status": status,
+        "data": timestamp.isoformat() if isinstance(timestamp, datetime) else serialized.get("created_at") or serialized.get("timestamp") or now(),
+        "referencia": serialized.get("referencia") or serialized.get("evento_id") or serialized.get("documento_id") or serialized.get("numero"),
+        "payload": fallback_payload if isinstance(fallback_payload, dict) else {},
+    }
+    return entry
+
+
+def timeline_sort_key(entry: dict[str, Any]) -> datetime:
+    parsed = parse_date_like(entry.get("data"))
+    if parsed:
+        return datetime.combine(parsed, datetime.min.time())
+    return datetime.min
+
+
+def parse_optional_date(value: str | None) -> date | None:
+    return parse_date_like(value) if value else None
+
+
+def build_company_timeline(
+    empresa_id: str,
+    *,
+    status_filter: str | None = None,
+    start_date: str | None = None,
+    end_date: str | None = None,
+    limit: int = 200,
+) -> dict[str, Any]:
+    company = db["empresas"].find_one(object_query(empresa_id))
+    if not company:
+        raise HTTPException(status_code=404, detail="Empresa nao encontrada")
+
+    company_serialized = serialize(company)
+    company_values = company_reference_values(company)
+    start = parse_optional_date(start_date)
+    end = parse_optional_date(end_date)
+    status_norm = str(status_filter or "").strip().lower()
+
+    entries: list[dict[str, Any]] = []
+    event_index: dict[str, dict[str, Any]] = {}
+
+    for raw_event in db["pipeline_events"].find({}).sort("created_at", -1):
+        event = normalize_pipeline_event(raw_event)
+        event_index[str(event.get("id") or "")] = event
+        event_company_values = {
+            str(event.get("empresa_id") or "").strip(),
+            digits_only(event.get("empresa_id")),
+            digits_only(event.get("payload", {}).get("cnpj")),
+            str(event.get("payload", {}).get("empresa_id") or "").strip(),
+            str(event.get("payload", {}).get("empresaId") or "").strip(),
+        }
+        if company_values and not (company_values & {value.lower() for value in event_company_values if value} or company_values & {digits_only(value) for value in event_company_values if value}):
+            continue
+        entries.append(normalize_timeline_entry(event, "pipeline_events", company_serialized))
+
+    for raw_alert in db["alertas"].find({}).sort("created_at", -1):
+        alert = normalize_alert_document(raw_alert)
+        alert_event = event_index.get(str(alert.get("evento_id") or alert.get("referencia") or ""))
+        related = False
+        if alert_event and company_values:
+            related = bool(
+                company_values
+                & {
+                    str(alert_event.get("empresa_id") or "").strip(),
+                    digits_only(alert_event.get("empresa_id")),
+                    digits_only(alert_event.get("payload", {}).get("cnpj")),
+                }
+            )
+        if not related and matches_company_reference(alert, company_serialized):
+            related = True
+        if not related and alert_event is None and alert.get("evento_id"):
+            lookup_event = event_index.get(str(alert.get("evento_id")))
+            if lookup_event and matches_company_reference(lookup_event, company_serialized):
+                related = True
+        if not related:
+            continue
+        entries.append(
+            normalize_timeline_entry(
+                {
+                    **alert,
+                    "tipo": "alerta",
+                    "origem": "alerta",
+                },
+                "alertas",
+                company_serialized,
+            )
+        )
+
+    collections = [
+        ("documentos", "documentos"),
+        ("obrigacoes", "obrigacoes"),
+        ("guias", "guias"),
+        ("debitos", "debitos"),
+        ("certidoes", "certidoes"),
+        ("fiscal_data", "fiscal"),
+        ("relatorios", "relatorios"),
+    ]
+    for collection_name, source in collections:
+        try:
+            raw_items = list(db[collection_name].find({}).sort("created_at", -1))
+        except Exception:
+            raw_items = list(db[collection_name].find({}))
+        for raw_item in raw_items:
+            if not matches_company_reference(raw_item, company_serialized):
+                continue
+            entries.append(normalize_timeline_entry(raw_item, source, company_serialized))
+
+    filtered_entries = []
+    for entry in entries:
+        entry_date = parse_date_like(entry.get("data"))
+        if start and entry_date and entry_date < start:
+            continue
+        if end and entry_date and entry_date > end:
+            continue
+        if status_norm and str(entry.get("status") or "").strip().lower() != status_norm:
+            continue
+        filtered_entries.append(entry)
+
+    filtered_entries.sort(key=timeline_sort_key, reverse=True)
+    if limit > 0:
+        filtered_entries = filtered_entries[:limit]
+
+    summary = {
+        "total": len(filtered_entries),
+        "eventos": sum(1 for item in filtered_entries if item["fonte"] == "pipeline_events"),
+        "alertas": sum(1 for item in filtered_entries if item["fonte"] == "alertas"),
+        "documentos": sum(1 for item in filtered_entries if item["fonte"] == "documentos"),
+        "obrigacoes": sum(1 for item in filtered_entries if item["fonte"] == "obrigacoes"),
+        "guias": sum(1 for item in filtered_entries if item["fonte"] == "guias"),
+        "debitos": sum(1 for item in filtered_entries if item["fonte"] == "debitos"),
+        "certidoes": sum(1 for item in filtered_entries if item["fonte"] == "certidoes"),
+        "fiscal": sum(1 for item in filtered_entries if item["fonte"] == "fiscal"),
+        "criticos": sum(1 for item in filtered_entries if item["severidade"] == "critica"),
+        "altos": sum(1 for item in filtered_entries if item["severidade"] == "alta"),
+    }
+
+    return {
+        "empresa": company_serialized,
+        "timeline": filtered_entries,
+        "resumo": summary,
+        "filtros": {
+            "status": status_norm or None,
+            "inicio": start.isoformat() if start else None,
+            "fim": end.isoformat() if end else None,
+            "limit": limit,
+        },
+        "total": len(filtered_entries),
+    }
+
+
+def escape_pdf_text(value: Any) -> str:
+    text = str(value or "")
+    return text.replace("\\", "\\\\").replace("(", "\\(").replace(")", "\\)")
+
+
+def build_simple_pdf(lines: list[str]) -> bytes:
+    content_lines = ["BT", "/F1 10 Tf", "14 TL", "50 800 Td"]
+    first = True
+    for line in lines:
+        safe_line = escape_pdf_text(line)
+        if not first:
+            content_lines.append("T*")
+        content_lines.append(f"({safe_line}) Tj")
+        first = False
+    content_lines.append("ET")
+    stream = "\n".join(content_lines).encode("latin-1", "replace")
+
+    objects: list[bytes] = []
+    objects.append(b"<< /Type /Catalog /Pages 2 0 R >>")
+    objects.append(b"<< /Type /Pages /Kids [3 0 R] /Count 1 >>")
+    objects.append(
+        b"<< /Type /Page /Parent 2 0 R /MediaBox [0 0 595 842] /Resources << /Font << /F1 4 0 R >> >> /Contents 5 0 R >>"
+    )
+    objects.append(b"<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>")
+    objects.append(b"<< /Length " + str(len(stream)).encode("ascii") + b" >>\nstream\n" + stream + b"\nendstream")
+
+    buffer = BytesIO()
+    buffer.write(b"%PDF-1.4\n")
+    offsets = [0]
+    for index, obj in enumerate(objects, start=1):
+        offsets.append(buffer.tell())
+        buffer.write(f"{index} 0 obj\n".encode("ascii"))
+        buffer.write(obj)
+        buffer.write(b"\nendobj\n")
+    xref_pos = buffer.tell()
+    buffer.write(f"xref\n0 {len(objects) + 1}\n".encode("ascii"))
+    buffer.write(b"0000000000 65535 f \n")
+    for offset in offsets[1:]:
+        buffer.write(f"{offset:010d} 00000 n \n".encode("ascii"))
+    buffer.write(
+        (
+            "trailer\n"
+            f"<< /Size {len(objects) + 1} /Root 1 0 R >>\n"
+            "startxref\n"
+            f"{xref_pos}\n"
+            "%%EOF"
+        ).encode("ascii")
+    )
+    return buffer.getvalue()
+
+
+def xml_cell(value: Any) -> str:
+    return f'<c t="inlineStr"><is><t>{xml_escape("" if value is None else str(value))}</t></is></c>'
+
+
+def build_simple_xlsx(rows: list[list[Any]], sheet_name: str = "Relatorio") -> bytes:
+    sheet_rows = []
+    for row_index, row in enumerate(rows, start=1):
+        cells = "".join(xml_cell(value) for value in row)
+        sheet_rows.append(f'<row r="{row_index}">{cells}</row>')
+
+    sheet_xml = (
+        '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>'
+        '<worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main">'
+        f'<sheetData>{"".join(sheet_rows)}</sheetData>'
+        "</worksheet>"
+    )
+
+    workbook_xml = (
+        '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>'
+        '<workbook xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" '
+        'xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships">'
+        f'<sheets><sheet name="{xml_escape(sheet_name)}" sheetId="1" r:id="rId1"/></sheets>'
+        "</workbook>"
+    )
+
+    rels_root = (
+        '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>'
+        '<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">'
+        '<Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" Target="xl/workbook.xml"/>'
+        "</Relationships>"
+    )
+
+    workbook_rels = (
+        '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>'
+        '<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">'
+        '<Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet" Target="worksheets/sheet1.xml"/>'
+        "</Relationships>"
+    )
+
+    content_types = (
+        '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>'
+        '<Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types">'
+        '<Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/>'
+        '<Default Extension="xml" ContentType="application/xml"/>'
+        '<Override PartName="/xl/workbook.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet.main+xml"/>'
+        '<Override PartName="/xl/worksheets/sheet1.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.worksheet+xml"/>'
+        "</Types>"
+    )
+
+    buffer = BytesIO()
+    with zipfile.ZipFile(buffer, "w", compression=zipfile.ZIP_DEFLATED) as archive:
+        archive.writestr("[Content_Types].xml", content_types)
+        archive.writestr("_rels/.rels", rels_root)
+        archive.writestr("xl/workbook.xml", workbook_xml)
+        archive.writestr("xl/_rels/workbook.xml.rels", workbook_rels)
+        archive.writestr("xl/worksheets/sheet1.xml", sheet_xml)
+    return buffer.getvalue()
+
+
+def safe_filename(value: Any, fallback: str = "relatorio") -> str:
+    text = str(value or "").strip()
+    if not text:
+        return fallback
+    cleaned = []
+    for char in text:
+        if char.isalnum() or char in {"-", "_"}:
+            cleaned.append(char)
+        elif char.isspace():
+            cleaned.append("_")
+    result = "".join(cleaned).strip("_")
+    return result or fallback
 
 
 def due_severity(dias_para_vencer: int | None) -> str:
@@ -1022,6 +1442,30 @@ def excluir_empresa(item_id: str):
     return envelope(delete_item("empresas", item_id))
 
 
+@app.get("/api/empresas/{item_id}/timeline")
+def empresa_timeline(
+    item_id: str,
+    status: str | None = None,
+    inicio: str | None = None,
+    fim: str | None = None,
+    start: str | None = None,
+    end: str | None = None,
+    limit: int = 200,
+):
+    payload = build_company_timeline(
+        item_id,
+        status_filter=status,
+        start_date=inicio or start,
+        end_date=fim or end,
+        limit=limit,
+    )
+    response_payload = dict(payload)
+    total = response_payload.pop("total", len(response_payload.get("timeline", [])))
+    response_payload["total"] = total
+    extra_payload = {key: value for key, value in response_payload.items() if key != "total"}
+    return envelope(response_payload, total=total, **extra_payload)
+
+
 @app.get("/api/documentos")
 def documentos():
     return collection_response("documentos", "documentos")
@@ -1204,6 +1648,130 @@ def tipos_relatorios():
 @app.get("/api/relatorios")
 def relatorios():
     return collection_response("relatorios", "relatorios")
+
+
+@app.get("/api/relatorios/export/pdf")
+def export_relatorios_pdf(
+    empresa_id: str | None = None,
+    status: str | None = None,
+    inicio: str | None = None,
+    fim: str | None = None,
+    start: str | None = None,
+    end: str | None = None,
+):
+    if empresa_id:
+        payload = build_company_timeline(
+            empresa_id,
+            status_filter=status,
+            start_date=inicio or start,
+            end_date=fim or end,
+            limit=1000,
+        )
+        empresa_nome = payload.get("empresa", {}).get("razao_social") or payload.get("empresa", {}).get("nome_fantasia") or empresa_id
+        filters = payload.get("filtros", {})
+        rows = payload.get("timeline", [])
+        report_lines = [
+            "CONSULTSLT WEB - TIMELINE DA EMPRESA",
+            f"Empresa: {empresa_nome}",
+            f"CNPJ: {payload.get('empresa', {}).get('cnpj', '-')}",
+            f"Filtros: status={filters.get('status') or 'todos'} inicio={filters.get('inicio') or '-'} fim={filters.get('fim') or '-'}",
+            f"Total de eventos: {payload.get('total', 0)}",
+            "",
+        ]
+    else:
+        all_entries = []
+        for empresa in db["empresas"].find({}):
+            try:
+                company_payload = build_company_timeline(
+                    str(serialize(empresa).get("id") or serialize(empresa).get("_id")),
+                    status_filter=status,
+                    start_date=inicio or start,
+                    end_date=fim or end,
+                    limit=1000,
+                )
+            except HTTPException:
+                continue
+            all_entries.extend(company_payload.get("timeline", []))
+        all_entries.sort(key=timeline_sort_key, reverse=True)
+        rows = all_entries[:1000]
+        report_lines = [
+            "CONSULTSLT WEB - RELATORIO OPERACIONAL",
+            f"Filtros: status={status or 'todos'} inicio={inicio or start or '-'} fim={fim or end or '-'}",
+            f"Total de eventos: {len(rows)}",
+            "",
+        ]
+        empresa_nome = "CONSULTSLT WEB"
+
+    for item in rows[:80]:
+        report_lines.extend(
+            [
+                f"[{item.get('data', '-')}] {item.get('fonte', '-')}/{item.get('tipo', '-')}",
+                f"Titulo: {item.get('titulo', '-')}",
+                f"Status: {item.get('status', '-')}",
+                f"Severidade: {item.get('severidade', '-')}",
+                f"Descricao: {item.get('descricao', '-')}",
+                "",
+            ]
+        )
+
+    pdf_bytes = build_simple_pdf(report_lines)
+    filename = f"timeline_{safe_filename(empresa_nome)}.pdf"
+    return Response(
+        content=pdf_bytes,
+        media_type="application/pdf",
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+    )
+
+
+@app.get("/api/relatorios/export/excel")
+def export_relatorios_excel(
+    empresa_id: str | None = None,
+    status: str | None = None,
+    inicio: str | None = None,
+    fim: str | None = None,
+    start: str | None = None,
+    end: str | None = None,
+):
+    if empresa_id:
+        payload = build_company_timeline(
+            empresa_id,
+            status_filter=status,
+            start_date=inicio or start,
+            end_date=fim or end,
+            limit=1000,
+        )
+        empresa_nome = payload.get("empresa", {}).get("razao_social") or payload.get("empresa", {}).get("nome_fantasia") or empresa_id
+        rows = payload.get("timeline", [])
+    else:
+        rows = []
+        empresa_nome = "CONSULTSLT WEB"
+        for empresa in db["empresas"].find({}):
+            try:
+                company_payload = build_company_timeline(
+                    str(serialize(empresa).get("id") or serialize(empresa).get("_id")),
+                    status_filter=status,
+                    start_date=inicio or start,
+                    end_date=fim or end,
+                    limit=1000,
+                )
+            except HTTPException:
+                continue
+            rows.extend(company_payload.get("timeline", []))
+        rows.sort(key=timeline_sort_key, reverse=True)
+        rows = rows[:1000]
+
+    headers = ["data", "fonte", "tipo", "titulo", "descricao", "status", "severidade", "empresa_id", "referencia"]
+    matrix = [headers]
+    for item in rows:
+        matrix.append([item.get(column) for column in headers])
+
+    xlsx_bytes = build_simple_xlsx(matrix, sheet_name="Timeline")
+    filename = f"timeline_{safe_filename(empresa_nome)}.xlsx"
+    return Response(
+        content=xlsx_bytes,
+        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+    )
 
 
 @app.get("/api/alertas")

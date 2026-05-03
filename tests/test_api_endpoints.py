@@ -154,8 +154,8 @@ def make_db():
         {
         "empresas": FakeCollection(
             [
-                {"_id": ObjectId(), "nome": "Empresa A", "ativo": True, "status": "ativa"},
-                {"_id": ObjectId(), "nome": "Empresa B", "ativo": False, "status": "inativa"},
+                {"_id": ObjectId(), "nome": "Empresa A", "razao_social": "Empresa A LTDA", "nome_fantasia": "Empresa A", "cnpj": "12345678000100", "ativo": True, "status": "ativa"},
+                {"_id": ObjectId(), "nome": "Empresa B", "razao_social": "Empresa B LTDA", "nome_fantasia": "Empresa B", "cnpj": "99887766000199", "ativo": False, "status": "inativa"},
             ]
         ),
         "documentos": FakeCollection(
@@ -376,3 +376,82 @@ def test_resolver_evento_marks_resolved(client):
 
     stored_event = app_module.db["pipeline_events"].find_one({"dedupe_key": created["dedupe_key"]})
     assert stored_event["status"] == "resolvido"
+
+
+def test_empresa_timeline_returns_events_and_alerts(client):
+    empresa_id = str(app_module.db["empresas"].items[0]["_id"])
+    app_module.db["documentos"].insert_one(
+        {
+            "nome": "Documento Timeline",
+            "status": "processado",
+            "empresa_id": empresa_id,
+            "created_at": "2026-05-02T10:00:00",
+        }
+    )
+    app_module.db["obrigacoes"].insert_one(
+        {
+            "titulo": "Obrigacao Timeline",
+            "status": "pendente",
+            "empresa_id": empresa_id,
+            "vencimento": "2026-05-10",
+            "created_at": "2026-05-02T11:00:00",
+        }
+    )
+    client.post(
+        "/api/events",
+        json={
+            "origem": "usuario",
+            "tipo": "alerta",
+            "empresa_id": empresa_id,
+            "severidade": "alta",
+            "titulo": "Evento Timeline",
+            "descricao": "Evento para timeline",
+            "payload": {"empresa_id": empresa_id},
+            "referencia": "timeline-001",
+        },
+        follow_redirects=False,
+    )
+
+    response = client.get(f"/api/empresas/{empresa_id}/timeline", follow_redirects=False)
+    assert response.status_code == 200
+    payload = response.json()["data"]
+    assert payload["empresa"]["cnpj"] == "12345678000100"
+    assert payload["total"] >= 3
+    fontes = {item["fonte"] for item in payload["timeline"]}
+    assert "pipeline_events" in fontes
+    assert "documentos" in fontes
+    assert "obrigacoes" in fontes
+
+
+def test_timeline_filters_by_status_and_period(client):
+    empresa_id = str(app_module.db["empresas"].items[0]["_id"])
+    response = client.get(
+        f"/api/empresas/{empresa_id}/timeline",
+        params={"status": "resolvido", "inicio": "2099-01-01", "fim": "2099-12-31"},
+        follow_redirects=False,
+    )
+    assert response.status_code == 200
+    payload = response.json()["data"]
+    assert payload["timeline"] == []
+
+
+def test_export_relatorios_pdf_and_excel(client):
+    empresa_id = str(app_module.db["empresas"].items[0]["_id"])
+
+    pdf_response = client.get(
+        "/api/relatorios/export/pdf",
+        params={"empresa_id": empresa_id},
+        follow_redirects=False,
+    )
+    assert pdf_response.status_code == 200
+    assert "application/pdf" in pdf_response.headers["content-type"]
+    assert pdf_response.content.startswith(b"%PDF")
+
+    excel_response = client.get(
+        "/api/relatorios/export/excel",
+        params={"empresa_id": empresa_id},
+        follow_redirects=False,
+    )
+    assert excel_response.status_code == 200
+    assert "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" in excel_response.headers["content-type"]
+    assert excel_response.content[:2] == b"PK"
