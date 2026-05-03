@@ -2,21 +2,28 @@ services:
   mongo:
     image: mongo:7
     restart: unless-stopped
-    ports:
-      - "27017:27017"
     volumes:
       - mongo_data:/data/db
+    healthcheck:
+      test: ["CMD", "mongosh", "--quiet", "--eval", "db.adminCommand('ping').ok"]
+      interval: 30s
+      timeout: 5s
+      retries: 5
 
   redis:
     image: redis:7-alpine
     restart: unless-stopped
     command: ["redis-server", "--appendonly", "yes"]
-    ports:
-      - "6379:6379"
     volumes:
       - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 30s
+      timeout: 5s
+      retries: 5
 
   backend:
+    image: ${BACKEND_IMAGE:-consultslt-backend:latest}
     build:
       context: .
       dockerfile: backend/Dockerfile
@@ -25,27 +32,21 @@ services:
       - path: .env
         required: false
     environment:
+      APP_ENV: ${APP_ENV:-production}
       MONGO_URL: ${MONGO_URL:-mongodb://mongo:27017/consultslt_db}
       DB_NAME: ${DB_NAME:-consultslt_db}
       REDIS_URL: ${REDIS_URL:-redis://redis:6379/0}
       ASYNC_USE_REDIS: ${ASYNC_USE_REDIS:-1}
     depends_on:
-      - mongo
-      - redis
+      mongo:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
     ports:
       - "8000:8000"
 
-  frontend:
-    build:
-      context: .
-      dockerfile: frontend/Dockerfile
-    restart: unless-stopped
-    ports:
-      - "3000:80"
-    depends_on:
-      - backend
-
   worker:
+    image: ${BACKEND_IMAGE:-consultslt-backend:latest}
     build:
       context: .
       dockerfile: backend/Dockerfile
@@ -55,14 +56,28 @@ services:
       - path: .env
         required: false
     environment:
+      APP_ENV: ${APP_ENV:-production}
       MONGO_URL: ${MONGO_URL:-mongodb://mongo:27017/consultslt_db}
       DB_NAME: ${DB_NAME:-consultslt_db}
       REDIS_URL: ${REDIS_URL:-redis://redis:6379/0}
       ASYNC_USE_REDIS: ${ASYNC_USE_REDIS:-1}
       WORKER_POLL_INTERVAL_SECONDS: ${WORKER_POLL_INTERVAL_SECONDS:-1}
     depends_on:
-      - mongo
-      - redis
+      mongo:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+
+  frontend:
+    image: ${FRONTEND_IMAGE:-consultslt-frontend:latest}
+    build:
+      context: .
+      dockerfile: frontend/Dockerfile
+    restart: unless-stopped
+    ports:
+      - "3000:80"
+    depends_on:
+      - backend
 
 volumes:
   mongo_data:

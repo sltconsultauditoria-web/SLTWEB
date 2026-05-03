@@ -1,0 +1,25 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: worker
+  namespace: consultslt
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: worker
+  template:
+    metadata:
+      labels:
+        app: worker
+    spec:
+      containers:
+        - name: worker
+          image: ghcr.io/OWNER/REPO/consultslt-backend:latest
+          imagePullPolicy: IfNotPresent
+          command: ["python", "-m", "backend.worker"]
+          envFrom:
+            - configMapRef:
+                name: consultslt-config
+            - secretRef:
+                name: consultslt-secrets

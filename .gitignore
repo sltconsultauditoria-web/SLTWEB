@@ -2,12 +2,14 @@
 .env
 .env.*
 frontend/.env
+!frontend/.env.production.example
 !.env.example
 *.pem
 *.key
 id_rsa*
 *secret*
 *secrets*
+!deploy/k8s/secrets.example.yaml
 
 # Dependencies
 node_modules/

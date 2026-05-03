@@ -1,0 +1,197 @@
+{
+  "generated_at": "2026-05-03",
+  "project": "C:\\Users\\admin-local\\ServerApp\\consultSLTweb",
+  "status": "PARCIAL",
+  "score": 88,
+  "ready": {
+    "github_pages": "conditional",
+    "backend_production": "partial",
+    "mongodb_persistent": "partial",
+    "worker_redis": "structural",
+    "ingress": "partial",
+    "ci_cd": true
+  },
+  "backup": {
+    "created": true,
+    "path": "backup_pre_readiness_20260503_174919"
+  },
+  "gateway_note": "Nenhuma referencia a 'gong' foi encontrada. A implementacao seguiu com Ingress/Gateway.",
+  "implemented": [
+    "Frontend homepage ajustado para /SLTWEB.",
+    "BrowserRouter usa basename baseado em PUBLIC_URL.",
+    "Redirect de login respeita PUBLIC_URL.",
+    "frontend/.env.production.example criado com REACT_APP_API_URL.",
+    "CORS FastAPI configuravel por CORS_ORIGINS/FRONTEND_ORIGIN.",
+    "MONGO_URI aceito como alias de MONGO_URL.",
+    "JWT_SECRET priorizado sobre SECRET_KEY.",
+    "JWT/secret forte obrigatorio em producao.",
+    "/api/health criado.",
+    "/health reporta Mongo, Redis e worker sem secrets.",
+    "docker-compose.yml inclui redis_data persistente.",
+    "docker-compose.prod.yml criado.",
+    "GitHub Actions criados para Pages, backend CI e Docker build.",
+    "Manifests Kubernetes/GKE criados em deploy/k8s.",
+    "Scripts Mongo backup, restore e indexes criados.",
+    "Teste real condicionado criado em tests/test_real_persistence.py."
+  ],
+  "files_created": [
+    ".github/workflows/frontend-pages.yml",
+    ".github/workflows/backend-ci.yml",
+    ".github/workflows/docker-build.yml",
+    "frontend/.env.production.example",
+    "docker-compose.prod.yml",
+    "deploy/k8s/namespace.yaml",
+    "deploy/k8s/configmap.yaml",
+    "deploy/k8s/secrets.example.yaml",
+    "deploy/k8s/mongo-pvc.yaml",
+    "deploy/k8s/mongo-deployment.yaml",
+    "deploy/k8s/mongo-service.yaml",
+    "deploy/k8s/redis-deployment.yaml",
+    "deploy/k8s/redis-service.yaml",
+    "deploy/k8s/backend-deployment.yaml",
+    "deploy/k8s/backend-service.yaml",
+    "deploy/k8s/worker-deployment.yaml",
+    "deploy/k8s/frontend-deployment.yaml",
+    "deploy/k8s/ingress.yaml",
+    "scripts/mongo_backup.ps1",
+    "scripts/mongo_restore.ps1",
+    "scripts/mongo_indexes.py",
+    "tests/test_real_persistence.py"
+  ],
+  "files_modified": [
+    ".env.example",
+    ".gitignore",
+    "backend/core/security.py",
+    "backend/main_enterprise.py",
+    "backend/middleware/auth.py",
+    "docker-compose.yml",
+    "frontend/package.json",
+    "frontend/src/App.js",
+    "frontend/src/context/AuthContext.jsx",
+    "deployment_readiness_report.md",
+    "deployment_readiness_report.json"
+  ],
+  "workflows": {
+    "frontend-pages.yml": {
+      "status": "created",
+      "purpose": "Build frontend and deploy frontend/build to GitHub Pages",
+      "requires_secrets": ["REACT_APP_API_URL"]
+    },
+    "backend-ci.yml": {
+      "status": "created",
+      "purpose": "py_compile and pytest"
+    },
+    "docker-build.yml": {
+      "status": "created",
+      "purpose": "Build backend and frontend Docker images; optional GHCR push on manual dispatch"
+    }
+  },
+  "kubernetes": {
+    "namespace": "consultslt",
+    "manifests_created": [
+      "namespace.yaml",
+      "configmap.yaml",
+      "secrets.example.yaml",
+      "mongo-pvc.yaml",
+      "mongo-deployment.yaml",
+      "mongo-service.yaml",
+      "redis-deployment.yaml",
+      "redis-service.yaml",
+      "backend-deployment.yaml",
+      "backend-service.yaml",
+      "worker-deployment.yaml",
+      "frontend-deployment.yaml",
+      "ingress.yaml"
+    ],
+    "ingress_routes": [
+      {
+        "path": "/api",
+        "service": "backend",
+        "port": 8000
+      },
+      {
+        "path": "/ws",
+        "service": "backend",
+        "port": 8000
+      },
+      {
+        "path": "/health",
+        "service": "backend",
+        "port": 8000
+      }
+    ],
+    "tls": "prepared_with_secret_consultslt-api-tls",
+    "applied_to_cluster": false
+  },
+  "mongo": {
+    "database": "consultslt_db",
+    "backup_restore_scripts": true,
+    "indexes_script": "scripts/mongo_indexes.py",
+    "indexes": [
+      "empresas.cnpj",
+      "usuarios.email",
+      "documentos.empresa_id",
+      "alertas.status",
+      "pipeline_events.status_severidade",
+      "notification_logs.idempotency_key",
+      "jobs.status"
+    ],
+    "real_persistence_test": "created_but_skipped_unless_RUN_REAL_MONGO_TESTS_1"
+  },
+  "security": {
+    "env_versioned": false,
+    "secret_examples_only": true,
+    "jwt_secret_required_in_production": true,
+    "cors_env_configurable": true,
+    "health_exposes_secrets": false,
+    "secret_scan_note": "Apenas placeholders antigos e referencias a variaveis foram encontrados; nenhum secret real foi adicionado."
+  },
+  "validations_executed": [
+    {
+      "command": "python -m py_compile backend/main_enterprise.py backend/core/security.py backend/middleware/auth.py backend/workers/async_jobs.py tests/test_api_endpoints.py tests/test_real_persistence.py scripts/mongo_indexes.py",
+      "status": "ok"
+    },
+    {
+      "command": "python -m pytest tests -q",
+      "status": "ok",
+      "result": "69 passed, 1 skipped"
+    },
+    {
+      "command": "npm.cmd run build",
+      "working_directory": "frontend",
+      "status": "ok",
+      "result": "Compiled successfully; hosted at /SLTWEB/"
+    },
+    {
+      "command": "docker compose --env-file .env.example -f docker-compose.yml config",
+      "status": "ok",
+      "note": "Warning local de acesso a ~/.docker/config.json; sintaxe Compose validada."
+    },
+    {
+      "command": "docker compose --env-file .env.example -f docker-compose.prod.yml config",
+      "status": "ok",
+      "note": "Warning local de acesso a ~/.docker/config.json; sintaxe Compose validada."
+    }
+  ],
+  "remaining_gaps": [
+    "Configurar GitHub Secret REACT_APP_API_URL com backend publico real.",
+    "Habilitar GitHub Pages usando GitHub Actions.",
+    "Publicar imagens Docker ou ajustar tags dos manifests.",
+    "Criar secret Kubernetes real a partir de secrets.example.yaml.",
+    "Aplicar manifests em cluster GKE/Nginx real.",
+    "Configurar DNS e TLS real.",
+    "Executar scripts/mongo_indexes.py contra Mongo real.",
+    "Executar RUN_REAL_MONGO_TESTS=1 contra consultslt_db real.",
+    "Validar WebSocket /ws/notificacoes via Ingress real.",
+    "Configurar credenciais reais para integracoes fiscais que nao devem operar em modo simulado."
+  ],
+  "next_steps": [
+    "Definir REACT_APP_API_URL no GitHub Secrets.",
+    "Definir APP_ENV=production, JWT_SECRET forte, CORS_ORIGINS e FRONTEND_ORIGIN no backend.",
+    "Buildar/publicar imagens backend e frontend.",
+    "Aplicar deploy/k8s em GKE/Nginx.",
+    "Criar certificado TLS e secret consultslt-api-tls.",
+    "Executar indices e teste real de persistencia.",
+    "Fazer smoke test externo de login, dashboard, health, jobs e websocket."
+  ]
+}

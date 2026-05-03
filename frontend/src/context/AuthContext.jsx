@@ -1,6 +1,9 @@
 import { createContext, useContext, useEffect, useState, useCallback } from "react";
 import api from "@/lib/apiClient";
 
+const appBasePath = (process.env.PUBLIC_URL || "").replace(/\/+$/, "");
+const appPath = (path) => `${appBasePath}${path}`;
+
 // ======================================================
 // BACKEND URL PROFISSIONAL
 // ======================================================
@@ -25,7 +28,7 @@ api.interceptors.response.use(
     if (error?.response?.status === 401) {
       localStorage.removeItem("token");
       localStorage.removeItem("user");
-      window.location.href = "/login";
+      window.location.href = appPath("/login");
     }
 
     return Promise.reject(error);

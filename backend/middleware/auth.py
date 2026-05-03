@@ -16,8 +16,17 @@ from schemas.usuario import PerfilUsuario
 logger = logging.getLogger(__name__)
 
 # Configurações JWT
-JWT_SECRET = os.environ.get('JWT_SECRET', 'CHANGE_ME_DEV_SECRET')
+JWT_SECRET = os.environ.get("JWT_SECRET") or os.environ.get("SECRET_KEY", "CHANGE_ME_DEV_SECRET")
 JWT_ALGORITHM = 'HS256'
+
+
+def _production_mode() -> bool:
+    value = os.environ.get("APP_ENV") or os.environ.get("FASTAPI_ENV") or os.environ.get("ENVIRONMENT") or ""
+    return value.strip().lower() in {"prod", "production"}
+
+
+if _production_mode() and (JWT_SECRET in {"", "CHANGE_ME_DEV_SECRET", "CHANGE_THIS_SECRET_KEY", "changeme", "secret"} or len(JWT_SECRET) < 32):
+    raise RuntimeError("JWT_SECRET/SECRET_KEY forte e obrigatorio em producao")
 
 # Security scheme
 security = HTTPBearer()
@@ -25,8 +34,8 @@ security = HTTPBearer()
 
 def get_db():
     """Obtém conexão com banco de dados"""
-    mongo_url = os.environ.get("MONGO_URL")
-    db_name = os.environ.get("DB_NAME", "consultslt")
+    mongo_url = os.environ.get("MONGO_URL") or os.environ.get("MONGO_URI") or "mongodb://localhost:27017/consultslt_db"
+    db_name = os.environ.get("DB_NAME", "consultslt_db")
     client = AsyncIOMotorClient(mongo_url)
     return client[db_name]
 

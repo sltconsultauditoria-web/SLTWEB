@@ -30,17 +30,37 @@ from backend.services.notification_service import (
 )
 from backend.workers.async_jobs import create_job, job_metrics as async_job_metrics, list_jobs as list_async_jobs, load_job as load_async_job, retry_job as retry_async_job
 
+def parse_cors_origins() -> list[str]:
+    raw_origins = os.environ.get("CORS_ORIGINS") or os.environ.get("FRONTEND_ORIGIN") or "*"
+    origins = [item.strip().rstrip("/") for item in raw_origins.split(",") if item.strip()]
+    return origins or ["*"]
+
+
+def production_mode() -> bool:
+    value = os.environ.get("APP_ENV") or os.environ.get("FASTAPI_ENV") or os.environ.get("ENVIRONMENT") or ""
+    return value.strip().lower() in {"prod", "production"}
+
+
+def validate_production_security() -> None:
+    secret = os.environ.get("JWT_SECRET") or os.environ.get("SECRET_KEY") or ""
+    weak_values = {"", "CHANGE_ME_DEV_SECRET", "CHANGE_THIS_SECRET_KEY", "changeme", "secret"}
+    if production_mode() and (secret in weak_values or len(secret) < 32):
+        raise RuntimeError("JWT_SECRET/SECRET_KEY forte e obrigatorio em producao")
+
+
+validate_production_security()
+
 app = FastAPI(title="CONSULTSLT ENTERPRISE")
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=parse_cors_origins(),
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
 
-MONGO_URL = os.environ.get("MONGO_URL", "mongodb://localhost:27017/consultslt_db")
+MONGO_URL = os.environ.get("MONGO_URL") or os.environ.get("MONGO_URI") or "mongodb://localhost:27017/consultslt_db"
 client = MongoClient(MONGO_URL)
 try:
     db = client.get_default_database()
@@ -1769,12 +1789,53 @@ def root():
 
 @app.get("/health")
 def health():
+    redis_url = os.environ.get("REDIS_URL")
     try:
         client.admin.command("ping")
         mongo_status = "ok"
-    except Exception:
+    except Exception as exc:
         mongo_status = "erro"
-    return envelope({"status": "healthy", "mongo": mongo_status, "database": db.name, "timestamp": now()})
+        mongo_error = type(exc).__name__
+    else:
+        mongo_error = None
+
+    if redis_url:
+        try:
+            from redis import Redis
+
+            redis_client = Redis.from_url(redis_url, socket_connect_timeout=1, socket_timeout=1)
+            redis_client.ping()
+            redis_status = "ok"
+            redis_error = None
+        except Exception as exc:
+            redis_status = "erro"
+            redis_error = type(exc).__name__
+    else:
+        redis_status = "nao_configurado"
+        redis_error = None
+
+    worker_config = {
+        "async_use_redis": str(os.environ.get("ASYNC_USE_REDIS", "1")).strip().lower() in {"1", "true", "yes", "on"},
+        "redis_url_configured": bool(redis_url),
+        "worker_poll_interval_seconds": os.environ.get("WORKER_POLL_INTERVAL_SECONDS", "1"),
+    }
+    overall = "healthy" if mongo_status == "ok" and redis_status in {"ok", "nao_configurado"} else "degraded"
+    data = {
+        "status": overall,
+        "mongo": mongo_status,
+        "mongo_error": mongo_error,
+        "redis": redis_status,
+        "redis_error": redis_error,
+        "worker": worker_config,
+        "database": db.name,
+        "timestamp": now(),
+    }
+    return envelope(data, **data)
+
+
+@app.get("/api/health")
+def api_health():
+    return health()
 
 
 @app.post("/api/auth/login")
