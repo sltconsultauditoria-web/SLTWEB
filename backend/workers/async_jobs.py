@@ -366,6 +366,42 @@ def _process_government_job(job: dict[str, Any]) -> dict[str, Any]:
     }
 
 
+def _process_email_notification_job(job: dict[str, Any]) -> dict[str, Any]:
+    from backend.services.email_service import send_email_notification
+
+    raw_payload = job.get("payload") or {}
+    notification = raw_payload.get("notification") if isinstance(raw_payload.get("notification"), dict) else raw_payload
+    start = perf_counter()
+    result = send_email_notification(notification)
+    status = "done" if result.get("sent") or result.get("mode") in {"log_only", "skipped"} else "error"
+    log_document = {
+        "job_id": str(job.get("id") or ""),
+        "status": status,
+        "mode": result.get("mode"),
+        "reason": result.get("reason"),
+        "subject": notification.get("subject"),
+        "destinatarios": result.get("recipients") or notification.get("destinatarios") or [],
+        "tipo": notification.get("tipo"),
+        "prioridade": notification.get("prioridade") or notification.get("severidade"),
+        "notification": notification,
+        "created_at": now(),
+        "duration_ms": int((perf_counter() - start) * 1000),
+    }
+    inserted = job_db()["email_logs"].insert_one(log_document)
+    log_document["_id"] = inserted.inserted_id
+    log_document["id"] = str(inserted.inserted_id)
+    record_job_log(
+        job_id=str(job.get("id") or ""),
+        provider="email",
+        status=status,
+        duration_ms=log_document["duration_ms"],
+        mode=str(result.get("mode") or "smtp"),
+        error=result.get("reason") if status == "error" else None,
+        details={"recipients": len(log_document["destinatarios"]), "tipo": log_document["tipo"]},
+    )
+    return {"email": result, "log_id": log_document["id"]}
+
+
 def process_job(job_id: str) -> dict[str, Any]:
     job = load_job(job_id)
     if not job:
@@ -384,6 +420,8 @@ def process_job(job_id: str) -> dict[str, Any]:
             result = _process_fiscal_pipeline_job(job)
         elif job_type == "government_integration":
             result = _process_government_job(job)
+        elif job_type == "email_notification":
+            result = _process_email_notification_job(job)
         else:
             result = {"message": "Job executado sem handler especifico", "payload": job.get("payload")}
 

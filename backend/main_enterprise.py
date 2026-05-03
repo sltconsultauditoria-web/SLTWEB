@@ -20,6 +20,7 @@ from backend.integrations.government.pgdas_service import PGDAService
 from backend.integrations.government.sefaz_service import SEFAZService
 from backend.core.security import create_access_token, decode_access_token
 from backend.services.decision_engine import DecisionEngine
+from backend.services.email_service import public_smtp_config
 from backend.workers.async_jobs import create_job, job_metrics as async_job_metrics, list_jobs as list_async_jobs, load_job as load_async_job, retry_job as retry_async_job
 
 app = FastAPI(title="CONSULTSLT ENTERPRISE")
@@ -568,10 +569,13 @@ def save_alert_recipient(payload: dict[str, Any]) -> dict[str, Any]:
         "id": str(document.get("id") or ObjectId()),
         "name": str(document.get("name") or "").strip(),
         "email": str(document.get("email") or "").strip(),
+        "ativo": bool(document.get("ativo", document.get("active", True))),
         "whatsapp": str(document.get("whatsapp") or "").strip(),
         "notify_email": bool(document.get("notify_email", True)),
         "notify_whatsapp": bool(document.get("notify_whatsapp", False)),
         "notify_teams": bool(document.get("notify_teams", True)),
+        "tipos_alerta": document.get("tipos_alerta") if isinstance(document.get("tipos_alerta"), list) else ["alerta", "evento"],
+        "prioridade_minima": normalize_severidade(document.get("prioridade_minima") or "media"),
         "threshold_levels": document.get("threshold_levels") if isinstance(document.get("threshold_levels"), list) else ["critico", "alto"],
         "created_at": document.get("created_at") or now(),
         "updated_at": now(),
@@ -742,6 +746,7 @@ def store_pipeline_event(payload: dict[str, Any], upsert: bool = False) -> dict[
     document["payload"] = document.get("payload") if isinstance(document.get("payload"), dict) else request_data(payload)
     document["dedupe_key"] = document.get("dedupe_key") or event_dedupe_key(document)
 
+    created_new = True
     if upsert:
         result = db["pipeline_events"].update_one(
             {"dedupe_key": document["dedupe_key"]},
@@ -751,6 +756,7 @@ def store_pipeline_event(payload: dict[str, Any], upsert: bool = False) -> dict[
         if getattr(result, "upserted_id", None):
             document["_id"] = result.upserted_id
         else:
+            created_new = False
             stored = db["pipeline_events"].find_one({"dedupe_key": document["dedupe_key"]})
             if stored:
                 document["_id"] = stored.get("_id")
@@ -760,13 +766,14 @@ def store_pipeline_event(payload: dict[str, Any], upsert: bool = False) -> dict[
 
     document["id"] = str(document.get("_id") or document.get("id") or ObjectId())
     normalized = normalize_pipeline_event(document)
-    if normalized["severidade"] in {"alta", "critica"}:
+    if created_new and normalized["severidade"] in {"alta", "critica"}:
         broadcast_notification(
             "evento",
             normalized["severidade"],
             normalized.get("empresa_id"),
             normalized.get("descricao") or normalized.get("titulo") or normalized.get("tipo") or "Novo evento fiscal",
         )
+        enqueue_email_notification("evento", normalized)
     return normalized
 
 
@@ -818,6 +825,7 @@ def resolve_alert_by_event(event_id: str, severity: str, title: str, description
             normalized.get("empresa_id"),
             normalized.get("descricao") or normalized.get("titulo") or "Novo alerta fiscal",
         )
+        enqueue_email_notification("alerta", normalized)
         return normalized
 
     result = db["alertas"].insert_one(alert_document)
@@ -829,6 +837,7 @@ def resolve_alert_by_event(event_id: str, severity: str, title: str, description
         normalized.get("empresa_id"),
         normalized.get("descricao") or normalized.get("titulo") or "Novo alerta fiscal",
     )
+    enqueue_email_notification("alerta", normalized)
     return normalized
 
 
@@ -850,6 +859,82 @@ def build_notification_payload(tipo: str, severidade: str, empresa_id: Any, mens
         "mensagem": str(mensagem or ""),
         "timestamp": now(),
     }
+
+
+PRIORITY_ORDER = {"baixa": 1, "media": 2, "normal": 2, "alta": 3, "alto": 3, "critica": 4, "critico": 4}
+
+
+def priority_rank(value: Any) -> int:
+    return PRIORITY_ORDER.get(normalize_severidade(value), 2)
+
+
+def recipient_accepts_notification(recipient: dict[str, Any], tipo: str, prioridade: str) -> bool:
+    if not bool(recipient.get("ativo", True)):
+        return False
+    if not bool(recipient.get("notify_email", True)):
+        return False
+    if not str(recipient.get("email") or "").strip():
+        return False
+    tipos = recipient.get("tipos_alerta") if isinstance(recipient.get("tipos_alerta"), list) else ["alerta", "evento"]
+    if tipo not in {str(item).strip().lower() for item in tipos}:
+        return False
+    minimum = recipient.get("prioridade_minima") or "media"
+    legacy_levels = recipient.get("threshold_levels")
+    if isinstance(legacy_levels, list) and legacy_levels:
+        mapped = {"critico": "critica", "alto": "alta", "normal": "media", "baixo": "baixa"}
+        allowed = {mapped.get(str(item).lower(), normalize_severidade(item)) for item in legacy_levels}
+        if normalize_severidade(prioridade) not in allowed and priority_rank(prioridade) < priority_rank(minimum):
+            return False
+    return priority_rank(prioridade) >= priority_rank(minimum)
+
+
+def notification_subject(tipo: str, prioridade: str, document: dict[str, Any]) -> str:
+    title = document.get("titulo") or document.get("tipo") or "notificacao"
+    return f"[ConsultSLT] {tipo.title()} {normalize_severidade(prioridade).upper()}: {title}"
+
+
+def build_email_notification(tipo: str, document: dict[str, Any], recipients: list[str]) -> dict[str, Any]:
+    prioridade = normalize_severidade(document.get("prioridade") or document.get("severidade"))
+    return {
+        "subject": notification_subject(tipo, prioridade, document),
+        "destinatarios": recipients,
+        "tipo": tipo,
+        "prioridade": prioridade,
+        "mensagem": str(document.get("descricao") or document.get("mensagem") or document.get("titulo") or "Nova notificacao"),
+        "timestamp": now(),
+        "empresa_id": document.get("empresa_id"),
+        "source_id": str(document.get("id") or document.get("_id") or ""),
+    }
+
+
+def enqueue_email_notification(tipo: str, document: dict[str, Any]) -> dict[str, Any] | None:
+    config = load_alerts_config()
+    if not bool(config.get("email_enabled", True)):
+        return None
+    prioridade = normalize_severidade(document.get("prioridade") or document.get("severidade"))
+    recipients = [
+        str(recipient.get("email")).strip()
+        for recipient in list_alert_recipients()
+        if recipient_accepts_notification(recipient, tipo, prioridade)
+    ]
+    notification = build_email_notification(tipo, document, recipients)
+    if not recipients:
+        db["email_logs"].insert_one(
+            {
+                "status": "skipped",
+                "mode": "log_only",
+                "reason": "no_matching_recipients",
+                "subject": notification["subject"],
+                "destinatarios": [],
+                "tipo": tipo,
+                "prioridade": prioridade,
+                "notification": notification,
+                "created_at": now(),
+                "duration_ms": 0,
+            }
+        )
+        return None
+    return create_job("email_notification", {"notification": notification}, max_attempts=3)
 
 
 def broadcast_notification(tipo: str, severidade: str, empresa_id: Any, mensagem: str) -> None:
@@ -2596,6 +2681,30 @@ def listar_alertas():
     return envelope(data, total=safe_count("alertas"), alertas=data)
 
 
+@app.post("/api/alertas")
+def criar_alerta(payload: dict):
+    document = request_data(payload)
+    document = {
+        **document,
+        "prioridade": normalize_alert_priority(document.get("prioridade") or document.get("severidade")),
+        "status": normalize_alert_status(document.get("status")),
+        "lido": bool(document.get("lido", False)),
+        "resolvido": bool(document.get("resolvido", False)),
+        "created_at": document.get("created_at") or now(),
+    }
+    result = db["alertas"].insert_one(document)
+    document["_id"] = result.inserted_id
+    normalized = normalize_alert_document(document)
+    broadcast_notification(
+        "alerta",
+        normalized.get("prioridade"),
+        normalized.get("empresa_id"),
+        normalized.get("descricao") or normalized.get("titulo") or "Novo alerta fiscal",
+    )
+    enqueue_email_notification("alerta", normalized)
+    return envelope(normalized)
+
+
 @app.websocket("/ws/notificacoes")
 async def ws_notificacoes(websocket: WebSocket):
     await NOTIFICATION_HUB.connect(websocket)
@@ -2741,6 +2850,51 @@ def test_alert_channel(payload: dict):
         recipient=recipient,
         simulated=True,
     )
+
+
+@app.get("/api/notificacoes/email/config")
+def get_email_notification_config():
+    alerts_config = load_alerts_config()
+    data = {
+        "smtp": public_smtp_config(),
+        "email_enabled": bool(alerts_config.get("email_enabled", True)),
+        "recipients": list_alert_recipients(),
+    }
+    return envelope(data, **data)
+
+
+@app.post("/api/notificacoes/email/test")
+def test_email_notification(payload: dict):
+    data = request_data(payload)
+    recipient = str(data.get("recipient") or data.get("email") or "").strip()
+    if not recipient:
+        configured_recipients = [
+            str(item.get("email")).strip()
+            for item in list_alert_recipients()
+            if recipient_accepts_notification(item, "alerta", "alta")
+        ]
+        if configured_recipients:
+            recipient = configured_recipients[0]
+    if not recipient:
+        raise HTTPException(status_code=400, detail="Destinatario de teste obrigatorio")
+
+    notification = {
+        "subject": str(data.get("subject") or "[ConsultSLT] Teste de notificacao por email"),
+        "destinatarios": [recipient],
+        "tipo": "teste",
+        "prioridade": normalize_severidade(data.get("prioridade") or "alta"),
+        "mensagem": str(data.get("mensagem") or "Este e um teste de envio de notificacao por email."),
+        "timestamp": now(),
+    }
+    job = create_job("email_notification", {"notification": notification}, max_attempts=1)
+    return envelope({"success": True, "job": job, "notification": notification}, success=True, job=job)
+
+
+@app.get("/api/notificacoes/email/logs")
+def get_email_notification_logs(limit: int = 100):
+    logs = list(db["email_logs"].find({}).sort("created_at", -1).limit(limit))
+    data = [serialize(item) for item in logs]
+    return envelope(data, total=safe_count("email_logs"), logs=data)
 
 
 @app.post("/api/alerts/recipients")

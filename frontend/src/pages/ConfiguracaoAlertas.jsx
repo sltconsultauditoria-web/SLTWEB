@@ -50,6 +50,8 @@ const ConfiguracaoAlertas = () => {
   const [recipients, setRecipients] = useState([]);
   const [thresholds, setThresholds] = useState([]);
   const [history, setHistory] = useState([]);
+  const [emailConfig, setEmailConfig] = useState(null);
+  const [emailLogs, setEmailLogs] = useState([]);
   const [pendingAlerts, setPendingAlerts] = useState([]);
   const [loading, setLoading] = useState(true);
   const [testingChannel, setTestingChannel] = useState(null);
@@ -58,7 +60,8 @@ const ConfiguracaoAlertas = () => {
   const [smtpForm, setSmtpForm] = useState({ host: '', port: 587, username: '', password: '', from_email: '' });
   const [twilioForm, setTwilioForm] = useState({ account_sid: '', auth_token: '', from_number: '' });
   const [teamsForm, setTeamsForm] = useState({ webhook_url: '', channel_name: '' });
-  const [recipientForm, setRecipientForm] = useState({ name: '', email: '', whatsapp: '', notify_email: true, notify_whatsapp: false, notify_teams: true, threshold_levels: ['critico', 'alto'] });
+  const defaultRecipientForm = { name: '', email: '', ativo: true, whatsapp: '', notify_email: true, notify_whatsapp: false, notify_teams: true, tipos_alerta: ['alerta', 'evento'], prioridade_minima: 'alta', threshold_levels: ['critico', 'alto'] };
+  const [recipientForm, setRecipientForm] = useState(defaultRecipientForm);
   const [isRecipientModalOpen, setIsRecipientModalOpen] = useState(false);
   const [editingRecipient, setEditingRecipient] = useState(null);
 
@@ -68,18 +71,22 @@ const ConfiguracaoAlertas = () => {
 
   const loadData = async () => {
     try {
-      const [configRes, recipientsRes, thresholdsRes, historyRes, pendingRes] = await Promise.all([
+      const [configRes, recipientsRes, thresholdsRes, historyRes, pendingRes, emailConfigRes, emailLogsRes] = await Promise.all([
         api.get(`/alerts/config`),
         api.get(`/alerts/recipients`),
         api.get(`/alerts/thresholds`),
         api.get(`/alerts/history`),
-        api.get(`/alerts/preview`)
+        api.get(`/alerts/preview`),
+        api.get(`/notificacoes/email/config`),
+        api.get(`/notificacoes/email/logs`)
       ]);
       setConfig(configRes.data);
       setRecipients(recipientsRes.data);
       setThresholds(thresholdsRes.data);
       setHistory(historyRes.data);
       setPendingAlerts(pendingRes.data);
+      setEmailConfig(emailConfigRes.data);
+      setEmailLogs(emailLogsRes.data);
     } catch (error) {
       console.error('Erro ao carregar dados:', error);
     } finally {
@@ -134,11 +141,13 @@ const ConfiguracaoAlertas = () => {
         recipient = teamsForm.webhook_url;
       }
       
-      const result = await api.post(`/alerts/test`, {
-        channel,
-        config: testConfig,
-        recipient
-      });
+      const result = channel === 'email'
+        ? await api.post(`/notificacoes/email/test`, { recipient, mensagem: 'Teste de notificacao por email' })
+        : await api.post(`/alerts/test`, {
+            channel,
+            config: testConfig,
+            recipient
+          });
       
       if (result.data.success) {
         alert(`Teste de ${channel} enviado com sucesso!${result.data.simulated ? ' (Simulado - configure as credenciais)' : ''}`);
@@ -161,7 +170,7 @@ const ConfiguracaoAlertas = () => {
       }
       setIsRecipientModalOpen(false);
       setEditingRecipient(null);
-      setRecipientForm({ name: '', email: '', whatsapp: '', notify_email: true, notify_whatsapp: false, notify_teams: true, threshold_levels: ['critico', 'alto'] });
+      setRecipientForm(defaultRecipientForm);
       loadData();
     } catch (error) {
       alert('Erro ao salvar destinatário');
@@ -477,7 +486,7 @@ const ConfiguracaoAlertas = () => {
                 <DialogTrigger asChild>
                   <Button onClick={() => {
                     setEditingRecipient(null);
-                    setRecipientForm({ name: '', email: '', whatsapp: '', notify_email: true, notify_whatsapp: false, notify_teams: true, threshold_levels: ['critico', 'alto'] });
+                    setRecipientForm(defaultRecipientForm);
                   }}>
                     <Plus className="h-4 w-4 mr-2" /> Adicionar
                   </Button>
@@ -503,6 +512,13 @@ const ConfiguracaoAlertas = () => {
                         onChange={(e) => setRecipientForm({...recipientForm, email: e.target.value})}
                         placeholder="email@empresa.com"
                       />
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <Switch
+                        checked={recipientForm.ativo}
+                        onCheckedChange={(v) => setRecipientForm({...recipientForm, ativo: v})}
+                      />
+                      <span>Destinatario ativo</span>
                     </div>
                     <div>
                       <Label>WhatsApp</Label>
@@ -544,12 +560,13 @@ const ConfiguracaoAlertas = () => {
                         {['critico', 'alto', 'normal', 'baixo'].map(level => (
                           <div key={level} className="flex items-center gap-2">
                             <Checkbox 
-                              checked={recipientForm.threshold_levels.includes(level)}
+                              checked={(recipientForm.threshold_levels || []).includes(level)}
                               onCheckedChange={(checked) => {
+                                const current = recipientForm.threshold_levels || [];
                                 if (checked) {
-                                  setRecipientForm({...recipientForm, threshold_levels: [...recipientForm.threshold_levels, level]});
+                                  setRecipientForm({...recipientForm, threshold_levels: [...current, level]});
                                 } else {
-                                  setRecipientForm({...recipientForm, threshold_levels: recipientForm.threshold_levels.filter(l => l !== level)});
+                                  setRecipientForm({...recipientForm, threshold_levels: current.filter(l => l !== level)});
                                 }
                               }}
                             />
@@ -557,6 +574,39 @@ const ConfiguracaoAlertas = () => {
                           </div>
                         ))}
                       </div>
+                    </div>
+                    <div>
+                      <Label className="mb-2 block">Tipos de notificacao</Label>
+                      <div className="space-y-2">
+                        {['alerta', 'evento'].map(tipo => (
+                          <div key={tipo} className="flex items-center gap-2">
+                            <Checkbox
+                              checked={(recipientForm.tipos_alerta || []).includes(tipo)}
+                              onCheckedChange={(checked) => {
+                                const current = recipientForm.tipos_alerta || [];
+                                setRecipientForm({
+                                  ...recipientForm,
+                                  tipos_alerta: checked ? [...current, tipo] : current.filter(item => item !== tipo)
+                                });
+                              }}
+                            />
+                            <span className="capitalize">{tipo}</span>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                    <div>
+                      <Label>Prioridade minima</Label>
+                      <select
+                        className="w-full h-10 rounded-md border border-input bg-background px-3 py-2 text-sm"
+                        value={recipientForm.prioridade_minima}
+                        onChange={(e) => setRecipientForm({...recipientForm, prioridade_minima: e.target.value})}
+                      >
+                        <option value="baixa">Baixa</option>
+                        <option value="media">Media</option>
+                        <option value="alta">Alta</option>
+                        <option value="critica">Critica</option>
+                      </select>
                     </div>
                     <Button onClick={saveRecipient} className="w-full">
                       {editingRecipient ? 'Salvar Alterações' : 'Adicionar Destinatário'}
@@ -576,6 +626,9 @@ const ConfiguracaoAlertas = () => {
                       <div>
                         <p className="font-medium">{recipient.name}</p>
                         <p className="text-sm text-gray-500">{recipient.email}</p>
+                        <p className="text-xs text-gray-400">
+                          {recipient.ativo === false ? 'Inativo' : 'Ativo'} - min. {recipient.prioridade_minima || 'media'}
+                        </p>
                         {recipient.whatsapp && <p className="text-xs text-gray-400">{recipient.whatsapp}</p>}
                       </div>
                     </div>
@@ -593,7 +646,7 @@ const ConfiguracaoAlertas = () => {
                       <div className="flex gap-1">
                         <Button variant="ghost" size="icon" onClick={() => {
                           setEditingRecipient(recipient);
-                          setRecipientForm(recipient);
+                          setRecipientForm({ ...defaultRecipientForm, ...recipient, ativo: recipient.ativo !== false });
                           setIsRecipientModalOpen(true);
                         }}>
                           <Edit className="h-4 w-4" />
@@ -672,6 +725,33 @@ const ConfiguracaoAlertas = () => {
               <CardDescription>Últimos alertas enviados pelo sistema</CardDescription>
             </CardHeader>
             <CardContent>
+              <div className="mb-6 grid grid-cols-1 md:grid-cols-3 gap-3">
+                <div className="p-3 rounded-lg border bg-gray-50">
+                  <p className="text-sm text-gray-500">SMTP</p>
+                  <p className="font-medium">{emailConfig?.smtp?.configured ? 'Configurado' : 'Nao configurado'}</p>
+                </div>
+                <div className="p-3 rounded-lg border bg-gray-50">
+                  <p className="text-sm text-gray-500">Remetente</p>
+                  <p className="font-medium">{emailConfig?.smtp?.from_email || '-'}</p>
+                </div>
+                <div className="p-3 rounded-lg border bg-gray-50">
+                  <p className="text-sm text-gray-500">Logs de email</p>
+                  <p className="font-medium">{emailLogs.length}</p>
+                </div>
+              </div>
+              {emailLogs.length > 0 && (
+                <div className="mb-6 space-y-2">
+                  {emailLogs.slice(0, 5).map((item) => (
+                    <div key={item.id} className="flex items-center justify-between p-3 bg-gray-50 rounded-lg">
+                      <div>
+                        <p className="font-medium">{item.subject || item.tipo || 'Email'}</p>
+                        <p className="text-sm text-gray-500">{formatarDataHora(item.created_at)} - {item.mode || '-'}</p>
+                      </div>
+                      <Badge variant="outline">{item.status}</Badge>
+                    </div>
+                  ))}
+                </div>
+              )}
               {history.length > 0 ? (
                 <div className="space-y-3">
                   {history.slice().reverse().map((item) => (

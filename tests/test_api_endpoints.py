@@ -212,6 +212,7 @@ def make_db():
         "pipeline_events": FakeCollection([]),
         "fiscal_pipeline_logs": FakeCollection([]),
         "job_logs": FakeCollection([]),
+        "email_logs": FakeCollection([]),
         "alerts_config": FakeCollection([{"id": "default", "email_enabled": True, "whatsapp_enabled": False, "teams_enabled": False}]),
         "alerts_recipients": FakeCollection([]),
         "alerts_thresholds": FakeCollection([]),
@@ -278,6 +279,8 @@ def wait_for_job(client, job_id, timeout=5.0):
         ("GET", "/api/integracoes/sefaz/nfe", {"params": {"cnpj": "12345678000100"}}),
         ("GET", "/api/jobs", {}),
         ("GET", "/api/jobs/metrics", {}),
+        ("GET", "/api/notificacoes/email/config", {}),
+        ("GET", "/api/notificacoes/email/logs", {}),
         ("GET", "/api/subscriptions/plans", {}),
         ("GET", "/api/tenants", {}),
         ("GET", "/api/rbac/roles-permissions", {}),
@@ -694,6 +697,60 @@ def test_job_metrics_endpoint_reports_processing_stats(client):
     assert "jobs_error" in metrics
     assert "avg_duration" in metrics
     assert "last_success_at" in metrics
+
+
+def test_email_notification_test_queues_job_and_logs_without_smtp(client):
+    response = client.post(
+        "/api/notificacoes/email/test",
+        json={"recipient": "destino@empresa.com", "mensagem": "Teste operacional"},
+        follow_redirects=False,
+    )
+    assert response.status_code == 200
+    job = response.json()["data"]["job"]
+    assert job["job_type"] == "email_notification"
+
+    wait_for_job(client, job["id"])
+    logs_response = client.get("/api/notificacoes/email/logs", follow_redirects=False)
+    assert logs_response.status_code == 200
+    logs_payload = logs_response.json()["data"]
+    assert any(item["mode"] in {"log_only", "skipped"} for item in logs_payload)
+
+
+def test_manual_alert_creation_queues_email_notification(client):
+    recipient = client.post(
+        "/api/alerts/recipients",
+        json={
+            "name": "Fiscal",
+            "email": "fiscal@empresa.com",
+            "ativo": True,
+            "notify_email": True,
+            "tipos_alerta": ["alerta"],
+            "prioridade_minima": "alta",
+        },
+        follow_redirects=False,
+    )
+    assert recipient.status_code == 200
+
+    response = client.post(
+        "/api/alertas",
+        json={
+            "titulo": "Alerta manual",
+            "descricao": "Criado diretamente na colecao de alertas",
+            "prioridade": "alta",
+            "empresa_id": "empresa-1",
+        },
+        follow_redirects=False,
+    )
+    assert response.status_code == 200
+    created = response.json()["data"]
+    assert created["prioridade"] == "alta"
+
+    jobs = client.get("/api/jobs", params={"job_type": "email_notification"}, follow_redirects=False).json()["data"]
+    assert jobs
+    wait_for_job(client, jobs[0]["id"])
+
+    logs = client.get("/api/notificacoes/email/logs", follow_redirects=False).json()["data"]
+    assert any(item["tipo"] == "alerta" and "fiscal@empresa.com" in item["destinatarios"] for item in logs)
 
 
 def test_realtime_notifications_flow(client):
