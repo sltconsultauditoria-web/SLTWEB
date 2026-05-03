@@ -1,8 +1,10 @@
 import axios from "axios";
 
 export const resolveApiBaseUrl = () => {
-  const envUrl = process.env.REACT_APP_API_URL || process.env.REACT_APP_BACKEND_URL;
-  if (!envUrl) return "";
+  const envUrl = process.env.REACT_APP_API_URL;
+  if (!envUrl || envUrl.trim() === "") {
+    throw new Error("REACT_APP_API_URL não configurado");
+  }
   const cleanUrl = envUrl.replace(/\/+$/, "");
   return cleanUrl.endsWith("/api") ? cleanUrl.slice(0, -4) : cleanUrl;
 };

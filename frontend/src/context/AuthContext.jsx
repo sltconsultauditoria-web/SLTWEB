@@ -4,24 +4,6 @@ import api from "@/lib/apiClient";
 const appBasePath = (process.env.PUBLIC_URL || "").replace(/\/+$/, "");
 const appPath = (path) => `${appBasePath}${path}`;
 
-// ======================================================
-// BACKEND URL PROFISSIONAL
-// ======================================================
-const getBackendURL = () => {
-  const envUrl =
-    process.env.REACT_APP_BACKEND_URL ||
-    process.env.REACT_APP_API_URL;
-
-  if (envUrl && envUrl.trim() !== "") {
-    const cleanUrl = envUrl.replace(/\/+$/, "");
-    return cleanUrl.endsWith("/api") ? cleanUrl : `${cleanUrl}/api`;
-  }
-
-  return "/api";
-};
-
-const BACKEND_URL = getBackendURL();
-
 api.interceptors.response.use(
   (response) => response,
   (error) => {
@@ -177,7 +159,7 @@ export const AuthProvider = ({ children }) => {
     user,
     token,
     loading,
-    backendUrl: BACKEND_URL,
+    backendUrl: api.defaults.baseURL,
     isAuthenticated: !!token,
     login,
     logout,

@@ -14,6 +14,8 @@ PARCIAL
 
 O commit preparado foi publicado no repositório destino com sucesso em `main`, mas o deploy final em produção ainda depende de variáveis de ambiente do backend público e da execução do workflow do GitHub Pages no GitHub.
 
+O secret obrigatório para o frontend publicado é `REACT_APP_API_URL=https://URL_PUBLICA_DO_BACKEND`. GitHub Pages hospeda apenas o frontend estático em `/SLTWEB/`; não deve existir chamada para `github.io/api`.
+
 ## URL DO FRONTEND
 
 `https://sltconsultauditoria-web.github.io/SLTWEB/`
