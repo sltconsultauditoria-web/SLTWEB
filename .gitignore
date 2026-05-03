@@ -1,6 +1,7 @@
 # Environment and secrets
 .env
 .env.*
+frontend/.env
 !.env.example
 *.pem
 *.key
@@ -20,6 +21,7 @@ __pycache__/
 *.py[cod]
 *$py.class
 .pytest_cache/
+pytest-cache-files-*/
 .mypy_cache/
 
 # Frontend caches/build artifacts
