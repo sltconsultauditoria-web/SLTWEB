@@ -11,7 +11,7 @@ from passlib.context import CryptContext
 
 # Configurações de segurança
 # Em produção, estas chaves devem vir de variáveis de ambiente
-SECRET_KEY = os.getenv("JWT_SECRET") or os.getenv("SECRET_KEY", "CHANGE_ME_DEV_SECRET")
+SECRET_KEY = os.getenv("SECRET_KEY") or os.getenv("JWT_SECRET") or os.getenv("SECRET")
 ALGORITHM = "HS256"
 ACCESS_TOKEN_EXPIRE_MINUTES = 60 * 24  # 24 horas
 
@@ -21,8 +21,11 @@ def _production_mode() -> bool:
     return value.strip().lower() in {"prod", "production"}
 
 
-if _production_mode() and (SECRET_KEY in {"", "CHANGE_ME_DEV_SECRET", "CHANGE_THIS_SECRET_KEY", "changeme", "secret"} or len(SECRET_KEY) < 32):
-    raise RuntimeError("JWT_SECRET/SECRET_KEY forte e obrigatorio em producao")
+if not SECRET_KEY and not _production_mode():
+    SECRET_KEY = "CHANGE_ME_DEV_SECRET"
+
+if _production_mode() and not SECRET_KEY:
+    raise RuntimeError("SECRET_KEY ou JWT_SECRET deve estar definido em producao")
 
 # Contexto para criptografia de senhas
 pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")

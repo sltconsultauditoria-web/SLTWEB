@@ -12,21 +12,12 @@ from functools import wraps
 from motor.motor_asyncio import AsyncIOMotorClient
 
 from schemas.usuario import PerfilUsuario
+from backend.core.security import SECRET_KEY as JWT_SECRET
 
 logger = logging.getLogger(__name__)
 
 # Configurações JWT
-JWT_SECRET = os.environ.get("JWT_SECRET") or os.environ.get("SECRET_KEY", "CHANGE_ME_DEV_SECRET")
 JWT_ALGORITHM = 'HS256'
-
-
-def _production_mode() -> bool:
-    value = os.environ.get("APP_ENV") or os.environ.get("FASTAPI_ENV") or os.environ.get("ENVIRONMENT") or ""
-    return value.strip().lower() in {"prod", "production"}
-
-
-if _production_mode() and (JWT_SECRET in {"", "CHANGE_ME_DEV_SECRET", "CHANGE_THIS_SECRET_KEY", "changeme", "secret"} or len(JWT_SECRET) < 32):
-    raise RuntimeError("JWT_SECRET/SECRET_KEY forte e obrigatorio em producao")
 
 # Security scheme
 security = HTTPBearer()

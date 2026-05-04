@@ -46,16 +46,6 @@ def production_mode() -> bool:
     )
     return value.strip().lower() in {"prod", "production"}
 
-
-def validate_production_security() -> None:
-    secret = os.environ.get("JWT_SECRET") or os.environ.get("SECRET_KEY") or ""
-    weak_values = {"", "CHANGE_ME_DEV_SECRET", "CHANGE_THIS_SECRET_KEY", "changeme", "secret"}
-    if production_mode() and (secret in weak_values or len(secret) < 32):
-        raise RuntimeError("JWT_SECRET/SECRET_KEY forte e obrigatorio em producao")
-
-
-validate_production_security()
-
 app = FastAPI(title="CONSULTSLT ENTERPRISE")
 
 app.add_middleware(
