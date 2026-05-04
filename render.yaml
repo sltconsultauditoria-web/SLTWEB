@@ -18,8 +18,12 @@ services:
         sync: false
       - key: CORS_ORIGINS
         value: https://sltconsultauditoria-web.github.io
+      - key: FRONTEND_URL
+        value: https://sltconsultauditoria-web.github.io
       - key: REDIS_URL
         sync: false
+      - key: ASYNC_USE_REDIS
+        value: "0"
       - key: ENV
         value: production
       - key: APP_ENV
