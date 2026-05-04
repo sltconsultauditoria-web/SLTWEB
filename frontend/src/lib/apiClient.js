@@ -1,27 +1,15 @@
-import axios from "axios";
+﻿import axios from "axios";
 
-export const resolveApiBaseUrl = () => {
-  if (!process.env.REACT_APP_API_URL) {
-    console.error("REACT_APP_API_URL não configurado em produção");
-    throw new Error("REACT_APP_API_URL não configurado em produção");
-  }
+export const API_URL =
+  process.env.REACT_APP_API_URL || "https://sltweb.onrender.com/api";
 
-  console.log("API BASE URL:", process.env.REACT_APP_API_URL);
-  return process.env.REACT_APP_API_URL;
-};
+console.log("API BASE URL:", API_URL);
 
-if (!process.env.REACT_APP_API_URL) {
-  console.error("REACT_APP_API_URL não configurado em produção");
-  throw new Error("REACT_APP_API_URL não configurado em produção");
-}
+export const resolveApiBaseUrl = () => API_URL;
 
 export const createApiClient = () => {
-  const baseURL = process.env.REACT_APP_API_URL;
-  const normalizedBaseURL = baseURL.replace(/\/+$/, "");
-  const shouldPrefixApiPath = !normalizedBaseURL.endsWith("/api");
-
   const api = axios.create({
-    baseURL,
+    baseURL: API_URL,
     timeout: 15000,
     headers: {
       "Content-Type": "application/json",
@@ -33,17 +21,6 @@ export const createApiClient = () => {
       const token = localStorage.getItem("token");
       if (token) {
         config.headers.Authorization = `Bearer ${token}`;
-      }
-
-      const url = config.url || "";
-      if (
-        shouldPrefixApiPath &&
-        url.startsWith("/") &&
-        !url.startsWith("/api/") &&
-        url !== "/health" &&
-        url !== "/docs"
-      ) {
-        config.url = `/api${url}`;
       }
 
       return config;

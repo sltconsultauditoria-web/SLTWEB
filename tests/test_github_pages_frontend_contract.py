@@ -1,4 +1,4 @@
-from pathlib import Path
+﻿from pathlib import Path
 
 import pytest
 
@@ -12,22 +12,21 @@ def read_text(path: Path) -> str:
     return path.read_text(encoding="utf-8")
 
 
-def test_api_client_requires_react_app_api_url():
+def test_api_client_uses_render_fallback_and_no_relative_api():
     api_client = read_text(FRONTEND / "src" / "lib" / "apiClient.js")
 
-    assert "if (!process.env.REACT_APP_API_URL)" in api_client
-    assert 'throw new Error("REACT_APP_API_URL não configurado em produção")' in api_client
-    assert "const baseURL = process.env.REACT_APP_API_URL" in api_client
-    assert "baseURL," in api_client
-    assert 'console.log("API BASE URL:", process.env.REACT_APP_API_URL)' in api_client
+    assert 'const API_URL =' in api_client
+    assert 'process.env.REACT_APP_API_URL || "https://sltweb.onrender.com/api"' in api_client
+    assert 'baseURL: API_URL' in api_client
+    assert 'console.log("API BASE URL:", API_URL)' in api_client
+    assert 'throw new Error("REACT_APP_API_URL não configurado em produção")' not in api_client
     assert "window.location.origin" not in api_client
     assert "REACT_APP_BACKEND_URL" not in api_client
     assert 'baseURL: "/api"' not in api_client
     assert "baseURL: '/api'" not in api_client
     assert "localhost" not in api_client
-    assert "resolveApiBaseUrl" in api_client
-    assert "shouldPrefixApiPath" in api_client
-    assert "normalizedBaseURL.endsWith(\"/api\")" in api_client
+    assert "shouldPrefixApiPath" not in api_client
+    assert "export const resolveApiBaseUrl = () => API_URL;" in api_client
 
 
 def test_auth_context_uses_api_post_login_and_no_manual_url():
@@ -71,16 +70,12 @@ def test_app_router_uses_sltweb_basename_and_routes():
 def test_frontend_pages_workflow_has_required_controls():
     workflow = read_text(ROOT / ".github" / "workflows" / "frontend-pages.yml")
 
-    assert "actions/configure-pages@v5" in workflow
-    assert "actions/upload-pages-artifact@v3" in workflow
-    assert "actions/deploy-pages@v4" in workflow
-    assert "PUBLIC_URL: /SLTWEB" in workflow
-    assert "REACT_APP_API_URL: ${{ secrets.REACT_APP_API_URL }}" in workflow
-    assert "ERRO: REACT_APP_API_URL não configurado" in workflow
-    assert "rm -rf node_modules" in workflow
-    assert "rm -rf build" in workflow
+    assert "Deploy Frontend to GitHub Pages" in workflow
+    assert "peaceiris/actions-gh-pages@v3" in workflow
+    assert "PUBLIC_URL=/SLTWEB REACT_APP_API_URL=https://sltweb.onrender.com/api npm run build" in workflow
+    assert "cp frontend/build/index.html frontend/build/404.html" in workflow
     assert "npm install" in workflow
-    assert "cp build/index.html build/404.html" in workflow
+    assert "publish_dir: ./frontend/build" in workflow
 
 
 def test_404_fallback_source_exists():
