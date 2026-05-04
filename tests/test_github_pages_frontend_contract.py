@@ -39,6 +39,25 @@ def test_auth_context_uses_api_post_login_and_no_manual_url():
     assert "localhost" not in auth_context
 
 
+def test_legacy_entraid_login_is_neutralized():
+    legacy_login = read_text(FRONTEND / "src" / "components" / "EntraIDLogin.jsx")
+
+    assert "Fluxo legado desativado" in legacy_login
+    assert "window.location.href = `${API_URL}/api/auth/login`" not in legacy_login
+    assert "/api/auth/login" not in legacy_login
+    assert "axios.get" not in legacy_login
+    assert "resolveApiBaseUrl" not in legacy_login
+
+
+def test_legacy_backend_api_helper_has_no_localhost_fallback():
+    legacy_api = read_text(ROOT / "backend" / "services" / "api.js")
+
+    assert "http://localhost:8000/api" not in legacy_api
+    assert "process.env.REACT_APP_API_URL" in legacy_api
+    assert "process.env.API_URL" in legacy_api
+    assert "API_URL não configurado" in legacy_api
+
+
 def test_app_router_uses_sltweb_basename_and_routes():
     app_js = read_text(FRONTEND / "src" / "App.js")
 

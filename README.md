@@ -95,3 +95,244 @@ Observacao: `.env` e `.env.*` sao ignorados pelo Git. Nao versionar secrets, tok
 ## Release
 
 - Versao atual: `v1.2-enterprise-notifications`
+
+## 14. Como Subir a Aplicacao Passo a Passo
+
+### 14.1 Pre-requisitos
+
+Antes de subir o sistema, confirme a instalacao e configuracao de:
+
+- Python 3.11+
+- Node.js e npm
+- MongoDB
+- Redis
+- Git
+- Docker e Docker Compose
+- Variaveis de ambiente
+
+Versoes e servicos podem variar entre ambiente local, homologacao e producao, mas os contratos principais devem permanecer os mesmos.
+
+### 14.2 Subir MongoDB `consultslt_db`
+
+1. Inicie o MongoDB localmente ou via Docker.
+2. Conecte no servidor com `mongosh`.
+3. Selecione o banco:
+
+```javascript
+use consultslt_db
+```
+
+4. Valide a conexao e as collections:
+
+```javascript
+show collections
+```
+
+5. Crie os indices padrao:
+
+```bash
+python scripts/mongo_indexes.py
+```
+
+6. Confirme as collections principais:
+
+- `empresas`
+- `usuarios`
+- `documentos`
+- `alertas`
+- `pipeline_events`
+- `jobs`
+- `notification_logs`
+
+Se o banco estiver vazio, o sistema pode iniciar, mas algumas telas e fluxos dependem de dados reais.
+
+### 14.3 Subir Backend FastAPI
+
+1. Entre na raiz do projeto.
+2. Crie o ambiente virtual:
+
+```bash
+python -m venv .venv
+```
+
+3. Ative o ambiente:
+
+```powershell
+.venv\Scripts\activate
+```
+
+4. Instale as dependencias:
+
+```bash
+pip install -r requirements.txt
+```
+
+5. Crie o `.env` com as variaveis minimas:
+
+```env
+MONGO_URI=mongodb://localhost:27017/
+DB_NAME=consultslt_db
+JWT_SECRET=...
+REDIS_URL=redis://localhost:6379
+CORS_ORIGINS=http://localhost:3000,https://sltconsultauditoria-web.github.io
+```
+
+6. Suba a API:
+
+```bash
+uvicorn backend.main_enterprise:app --reload --reload-dir backend --port 8000
+```
+
+7. Valide:
+
+- `http://localhost:8000/health`
+- `http://localhost:8000/docs`
+
+### 14.4 Subir Worker / Redis
+
+1. Inicie o Redis localmente ou via Docker.
+2. Rode o worker:
+
+```bash
+python -m backend.worker
+```
+
+3. Valide os jobs:
+
+- `http://localhost:8000/api/jobs`
+- `http://localhost:8000/api/jobs/metrics`
+
+### 14.5 Subir Frontend React
+
+1. Entre em `frontend`:
+
+```bash
+cd frontend
+```
+
+2. Instale as dependencias:
+
+```bash
+npm install
+```
+
+3. Crie o `.env` local:
+
+```env
+REACT_APP_API_URL=http://localhost:8000/api
+PUBLIC_URL=/SLTWEB
+```
+
+4. Suba em modo local:
+
+```bash
+npm start
+```
+
+5. Acesse:
+
+- `http://localhost:3000/SLTWEB/login`
+
+6. Gere o build:
+
+```bash
+npm run build
+```
+
+### 14.6 Login Inicial
+
+Credenciais iniciais conhecidas no ambiente de desenvolvimento:
+
+- `admin@empresa.com / admin123`
+- `william.lucas@sltconsult.com.br / Slt@2024`
+- `admin@consultslt.com.br / Consult@2026`
+
+Se algum login falhar, verifique seed de usuarios, hash de senha, JWT e CORS.
+
+### 14.7 Subir com Docker Compose
+
+1. Configure o `.env`.
+2. Suba os servicos:
+
+```bash
+docker compose up -d --build
+```
+
+3. Verifique os containers:
+
+```bash
+docker compose ps
+```
+
+4. Veja logs:
+
+```bash
+docker compose logs -f backend
+docker compose logs -f worker
+```
+
+5. Valide:
+
+- `http://localhost:8000/health`
+- `http://localhost:3000/SLTWEB/`
+
+### 14.8 Deploy GitHub Pages
+
+1. Repositorio:
+
+```text
+https://github.com/sltconsultauditoria-web/SLTWEB
+```
+
+2. URL final:
+
+```text
+https://sltconsultauditoria-web.github.io/SLTWEB/
+```
+
+3. Configure o GitHub Secret:
+
+```text
+REACT_APP_API_URL=https://URL_PUBLICA_DO_BACKEND
+```
+
+Observacao: o frontend adiciona `/api` no cliente HTTP quando necessario. O secret deve apontar para a raiz publica do backend, sem duplicar `/api`.
+
+4. Em `Settings -> Pages`, selecione `Source: GitHub Actions`.
+5. Rode o workflow `frontend-pages.yml`.
+6. Valide:
+
+- `/SLTWEB/`
+- `/SLTWEB/login`
+- `/SLTWEB/dashboard`
+
+Observacao: o Pages hospeda apenas o frontend estatico. O backend precisa estar em uma URL publica separada.
+
+### 14.9 Checklist de Validacao
+
+Rode, na ordem:
+
+```bash
+python -m pytest tests -q
+cd frontend && npm run build
+curl http://localhost:8000/health
+curl http://localhost:8000/api/dashboard
+```
+
+Depois valide manualmente:
+
+- login
+- dashboard
+- MongoDB
+- SharePoint
+- WebSocket
+- notificacoes
+
+### 14.10 Troubleshooting
+
+- Erro 405 no login: confira `REACT_APP_API_URL` no build e no secret do GitHub.
+- GitHub Pages 404: use `/SLTWEB/` e confirme o `404.html` no build.
+- MongoDB nao conecta: valide `MONGO_URI` e o banco `consultslt_db`.
+- CORS bloqueado: ajuste `CORS_ORIGINS`.
+- Worker nao processa: valide Redis e o processo do worker.
+- WebSocket nao conecta: valide `/ws/notificacoes` e o proxy/ingress.
