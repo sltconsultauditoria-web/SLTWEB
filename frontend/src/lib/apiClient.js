@@ -1,18 +1,23 @@
 import axios from "axios";
 
 export const resolveApiBaseUrl = () => {
-  const envUrl = process.env.REACT_APP_API_URL;
-  if (!envUrl || envUrl.trim() === "") {
-    console.error("REACT_APP_API_URL não configurado");
-    throw new Error("REACT_APP_API_URL não configurado");
+  if (!process.env.REACT_APP_API_URL) {
+    console.error("REACT_APP_API_URL não configurado em produção");
+    throw new Error("REACT_APP_API_URL não configurado em produção");
   }
-  const cleanUrl = envUrl.replace(/\/+$/, "");
-  return cleanUrl.endsWith("/api") ? cleanUrl.slice(0, -4) : cleanUrl;
+
+  console.log("API BASE URL:", process.env.REACT_APP_API_URL);
+  return process.env.REACT_APP_API_URL;
 };
+
+if (!process.env.REACT_APP_API_URL) {
+  console.error("REACT_APP_API_URL não configurado em produção");
+  throw new Error("REACT_APP_API_URL não configurado em produção");
+}
 
 export const createApiClient = () => {
   const api = axios.create({
-    baseURL: resolveApiBaseUrl(),
+    baseURL: process.env.REACT_APP_API_URL,
     timeout: 15000,
     headers: {
       "Content-Type": "application/json",

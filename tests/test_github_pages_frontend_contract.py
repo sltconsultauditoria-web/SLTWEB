@@ -1,6 +1,6 @@
-import pytest
-
 from pathlib import Path
+
+import pytest
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -15,12 +15,14 @@ def read_text(path: Path) -> str:
 def test_api_client_requires_react_app_api_url():
     api_client = read_text(FRONTEND / "src" / "lib" / "apiClient.js")
 
-    assert "process.env.REACT_APP_API_URL" in api_client
-    assert 'throw new Error("REACT_APP_API_URL não configurado")' in api_client
+    assert "if (!process.env.REACT_APP_API_URL)" in api_client
+    assert 'throw new Error("REACT_APP_API_URL não configurado em produção")' in api_client
+    assert 'baseURL: process.env.REACT_APP_API_URL' in api_client
+    assert 'console.log("API BASE URL:", process.env.REACT_APP_API_URL)' in api_client
     assert "window.location.origin" not in api_client
     assert "REACT_APP_BACKEND_URL" not in api_client
     assert "localhost" not in api_client
-    assert 'config.url = `/api${url}`' in api_client
+    assert "resolveApiBaseUrl" in api_client
 
 
 def test_auth_context_uses_api_post_login_and_no_manual_url():
@@ -49,7 +51,9 @@ def test_frontend_pages_workflow_has_required_controls():
     assert "actions/deploy-pages@v4" in workflow
     assert "PUBLIC_URL: /SLTWEB" in workflow
     assert "REACT_APP_API_URL: ${{ secrets.REACT_APP_API_URL }}" in workflow
-    assert "REACT_APP_API_URL não configurado" in workflow
+    assert "ERRO: REACT_APP_API_URL não configurado" in workflow
+    assert "rm -rf node_modules" in workflow
+    assert "npm install" in workflow
     assert "cp build/index.html build/404.html" in workflow
 
 
@@ -65,7 +69,6 @@ def test_build_artifacts_after_frontend_build():
         pytest.skip("frontend build not generated yet")
 
     index_html = read_text(BUILD / "index.html")
-    fallback_html = read_text(BUILD / "404.html")
     bundle_text = read_text(next((BUILD / "static" / "js").glob("main.*.js")))
 
     assert "/SLTWEB/" in index_html
