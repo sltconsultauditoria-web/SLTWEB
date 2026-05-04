@@ -16,8 +16,12 @@ if (!process.env.REACT_APP_API_URL) {
 }
 
 export const createApiClient = () => {
+  const baseURL = process.env.REACT_APP_API_URL;
+  const normalizedBaseURL = baseURL.replace(/\/+$/, "");
+  const shouldPrefixApiPath = !normalizedBaseURL.endsWith("/api");
+
   const api = axios.create({
-    baseURL: process.env.REACT_APP_API_URL,
+    baseURL,
     timeout: 15000,
     headers: {
       "Content-Type": "application/json",
@@ -32,7 +36,13 @@ export const createApiClient = () => {
       }
 
       const url = config.url || "";
-      if (url.startsWith("/") && !url.startsWith("/api/") && url !== "/health" && url !== "/docs") {
+      if (
+        shouldPrefixApiPath &&
+        url.startsWith("/") &&
+        !url.startsWith("/api/") &&
+        url !== "/health" &&
+        url !== "/docs"
+      ) {
         config.url = `/api${url}`;
       }
 

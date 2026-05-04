@@ -4,6 +4,10 @@
 
 PARCIAL
 
+## BACKEND_URL
+
+Nao publicado ainda.
+
 ## SCORE
 
 68/100
@@ -18,6 +22,7 @@ PARCIAL
 - A suíte local passa: `78 passed, 1 skipped`.
 - O build não expõe `github.io/api` nem `"/api/auth/login"` relativo.
 - O componente legado `EntraIDLogin.jsx` foi neutralizado e não monta URL manual de login.
+- O `apiClient` aceita `REACT_APP_API_URL` com ou sem sufixo `/api` sem duplicar caminho.
 
 ## O QUE ESTÁ PARCIAL
 
@@ -56,6 +61,7 @@ PARCIAL
 ## SOLUÇÃO APLICADA
 
 - `apiClient` foi endurecido para falhar sem `REACT_APP_API_URL`.
+- `apiClient` foi ajustado para aceitar o contrato do Render com sufixo `/api` sem duplicar rota.
 - O workflow de Pages foi endurecido para abortar sem secret.
 - O fluxo legado de login foi neutralizado.
 - A documentação foi alinhada ao contrato real do cliente HTTP.

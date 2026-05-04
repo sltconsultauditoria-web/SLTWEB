@@ -293,10 +293,10 @@ https://sltconsultauditoria-web.github.io/SLTWEB/
 3. Configure o GitHub Secret:
 
 ```text
-REACT_APP_API_URL=https://URL_PUBLICA_DO_BACKEND
+REACT_APP_API_URL=https://URL_RENDER/api
 ```
 
-Observacao: o frontend adiciona `/api` no cliente HTTP quando necessario. O secret deve apontar para a raiz publica do backend, sem duplicar `/api`.
+Observacao: o frontend aceita o backend raiz ou o sufixo `/api`, mas neste deploy o secret do GitHub deve apontar para `https://URL_RENDER/api`.
 
 4. Em `Settings -> Pages`, selecione `Source: GitHub Actions`.
 5. Rode o workflow `frontend-pages.yml`.

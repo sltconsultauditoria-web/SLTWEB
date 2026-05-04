@@ -37,7 +37,13 @@ def parse_cors_origins() -> list[str]:
 
 
 def production_mode() -> bool:
-    value = os.environ.get("APP_ENV") or os.environ.get("FASTAPI_ENV") or os.environ.get("ENVIRONMENT") or ""
+    value = (
+        os.environ.get("APP_ENV")
+        or os.environ.get("FASTAPI_ENV")
+        or os.environ.get("ENVIRONMENT")
+        or os.environ.get("ENV")
+        or ""
+    )
     return value.strip().lower() in {"prod", "production"}
 
 
