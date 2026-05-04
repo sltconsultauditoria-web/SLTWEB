@@ -1,4 +1,5 @@
 from pathlib import Path
+import os
 
 import pytest
 
@@ -17,10 +18,12 @@ def test_api_client_requires_react_app_api_url():
 
     assert "if (!process.env.REACT_APP_API_URL)" in api_client
     assert 'throw new Error("REACT_APP_API_URL não configurado em produção")' in api_client
-    assert 'baseURL: process.env.REACT_APP_API_URL' in api_client
+    assert "baseURL: process.env.REACT_APP_API_URL" in api_client
     assert 'console.log("API BASE URL:", process.env.REACT_APP_API_URL)' in api_client
     assert "window.location.origin" not in api_client
     assert "REACT_APP_BACKEND_URL" not in api_client
+    assert 'baseURL: "/api"' not in api_client
+    assert "baseURL: '/api'" not in api_client
     assert "localhost" not in api_client
     assert "resolveApiBaseUrl" in api_client
 
@@ -32,6 +35,7 @@ def test_auth_context_uses_api_post_login_and_no_manual_url():
     assert 'fetch("/api/auth/login")' not in auth_context
     assert "window.location.origin" not in auth_context
     assert "window.location.href = `${API_URL}/api/auth/login`" not in auth_context
+    assert "github.io" not in auth_context
     assert "localhost" not in auth_context
 
 
@@ -53,6 +57,7 @@ def test_frontend_pages_workflow_has_required_controls():
     assert "REACT_APP_API_URL: ${{ secrets.REACT_APP_API_URL }}" in workflow
     assert "ERRO: REACT_APP_API_URL não configurado" in workflow
     assert "rm -rf node_modules" in workflow
+    assert "rm -rf build" in workflow
     assert "npm install" in workflow
     assert "cp build/index.html build/404.html" in workflow
 
@@ -70,8 +75,12 @@ def test_build_artifacts_after_frontend_build():
 
     index_html = read_text(BUILD / "index.html")
     bundle_text = read_text(next((BUILD / "static" / "js").glob("main.*.js")))
+    expected_api_url = os.environ.get("REACT_APP_API_URL", "https://backend.publico.exemplo")
 
     assert "/SLTWEB/" in index_html
     assert (BUILD / "404.html").exists()
+    assert expected_api_url in bundle_text
     assert "github.io/api" not in bundle_text
+    assert "sltconsultauditoria-web.github.io/api" not in bundle_text
+    assert "github.io/api/auth/login" not in bundle_text
     assert "/api/auth/login" not in bundle_text
