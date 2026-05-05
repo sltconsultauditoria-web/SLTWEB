@@ -54,6 +54,12 @@ export const AuthProvider = ({ children }) => {
   // ======================================================
   const login = useCallback(async (email, password) => {
     try {
+      console.log("LOGIN DEBUG:", {
+        baseURL: api.defaults.baseURL,
+        endpoint: "/auth/login",
+        method: "POST",
+      });
+
       const response = await api.post("/auth/login", {
         email: email.trim(),
         password,
