@@ -34,6 +34,8 @@ def test_auth_context_uses_api_post_login_and_no_manual_url():
 
     assert 'api.post("/auth/login"' in auth_context
     assert 'fetch("/api/auth/login")' not in auth_context
+    assert 'api.post("/api/auth/login"' not in auth_context
+    assert 'api.get("/api/me"' not in auth_context
     assert "window.location.origin" not in auth_context
     assert "window.location.href = `${API_URL}/api/auth/login`" not in auth_context
     assert "github.io" not in auth_context
@@ -57,6 +59,17 @@ def test_legacy_backend_api_helper_has_no_localhost_fallback():
     assert "process.env.REACT_APP_API_URL" in legacy_api
     assert "process.env.API_URL" in legacy_api
     assert "API_URL não configurado" in legacy_api
+
+
+def test_frontend_source_has_no_duplicated_api_prefix_calls():
+    source_files = list((FRONTEND / "src").rglob("*.js")) + list((FRONTEND / "src").rglob("*.jsx"))
+    source_text = "\n".join(read_text(path) for path in source_files)
+
+    assert "/api/me" not in source_text
+    assert "/api/auth/login" not in source_text
+    assert "api/api" not in source_text
+    assert "window.location.origin" not in source_text
+    assert "localhost:8000" not in source_text
 
 
 def test_app_router_uses_sltweb_basename_and_routes():
@@ -100,4 +113,5 @@ def test_build_artifacts_after_frontend_build():
     assert "sltconsultauditoria-web.github.io/api" not in bundle_text
     assert "github.io/api/auth/login" not in bundle_text
     assert "/api/auth/login" not in bundle_text
+    assert "/api/api" not in bundle_text
     assert "window.location.origin" not in bundle_text

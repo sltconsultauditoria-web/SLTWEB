@@ -51,7 +51,7 @@ export function RecibosSharePoint() {
   const [error, setError] = useState(null);
   const [success, setSuccess] = useState(null);
 
-  const accessToken = localStorage.getItem('access_token');
+  const accessToken = localStorage.getItem('token') || localStorage.getItem('access_token');
 
   // Carregar empresas ao montar componente
   useEffect(() => {
@@ -68,11 +68,13 @@ export function RecibosSharePoint() {
   const carregarEmpresas = async () => {
     try {
       setLoading(true);
-      const response = await axios.get(`${API_URL}/api/auth/empresas`, {
-        params: { access_token: accessToken },
+      const response = await axios.get(`${API_URL}/empresas`, {
+        headers: accessToken ? { Authorization: `Bearer ${accessToken}` } : undefined,
       });
 
-      setEmpresas(response.data.empresas || []);
+      const payload = response.data || {};
+      const items = Array.isArray(payload) ? payload : payload.empresas || payload.data || [];
+      setEmpresas(items);
       setError(null);
     } catch (err) {
       setError('Erro ao carregar empresas: ' + (err.response?.data?.detail || err.message));
@@ -85,15 +87,17 @@ export function RecibosSharePoint() {
   const carregarRecibos = async (empresaId) => {
     try {
       setLoading(true);
-      const response = await axios.get(`${API_URL}/api/auth/recibos`, {
+      const response = await axios.get(`${API_URL}/sharepoint`, {
+        headers: accessToken ? { Authorization: `Bearer ${accessToken}` } : undefined,
         params: {
-          access_token: accessToken,
           empresa_id: empresaId,
           limite: 100,
         },
       });
 
-      setRecibos(response.data.recibos || []);
+      const payload = response.data || {};
+      const items = Array.isArray(payload) ? payload : payload.recibos || payload.data || [];
+      setRecibos(items);
       setError(null);
     } catch (err) {
       setError('Erro ao carregar recibos: ' + (err.response?.data?.detail || err.message));
@@ -109,9 +113,9 @@ export function RecibosSharePoint() {
 
       // Obter URL de download do recibo
       const response = await axios.get(
-        `${API_URL}/api/auth/recibos/${nomeArquivo}`,
+        `${API_URL}/sharepoint/${nomeArquivo}`,
         {
-          params: { access_token: accessToken },
+          headers: accessToken ? { Authorization: `Bearer ${accessToken}` } : undefined,
         }
       );
 
@@ -138,7 +142,7 @@ export function RecibosSharePoint() {
   const visualizarRecibo = async (nomeArquivo) => {
     try {
       // Abrir recibo em nova aba
-      const url = `${API_URL}/api/auth/recibos/${nomeArquivo}?access_token=${accessToken}`;
+      const url = `${API_URL}/sharepoint/${nomeArquivo}`;
       window.open(url, '_blank');
     } catch (err) {
       setError('Erro ao visualizar recibo');

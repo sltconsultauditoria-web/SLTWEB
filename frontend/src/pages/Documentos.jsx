@@ -328,7 +328,7 @@ const Modal = ({ documento, onClose }) => {
   useEffect(() => {
     if (documento && documento.file_path) {
       const baseUrl = resolveApiBaseUrl();
-      setPdfUrl(`${baseUrl}/api/documentos/${documento.id}/download`);
+      setPdfUrl(`${baseUrl}/documentos/${documento.id}/download`);
     }
   }, [documento]);
 

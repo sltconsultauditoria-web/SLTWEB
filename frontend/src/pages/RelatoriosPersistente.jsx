@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react';
 import api from '@/services/api';
+import { resolveApiBaseUrl } from '@/lib/apiClient';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { FileBarChart, Download } from 'lucide-react';
@@ -25,6 +26,11 @@ const Relatorios = () => {
     } finally {
       setLoading(false);
     }
+  };
+
+  const handleDownload = (relatorioId) => {
+    const baseUrl = resolveApiBaseUrl();
+    window.open(`${baseUrl}/relatorios/${relatorioId}/download`, '_blank');
   };
 
   useEffect(() => {
@@ -67,7 +73,7 @@ const Relatorios = () => {
                       </p>
                     </div>
                   </div>
-                  <Button variant="outline" size="sm" onClick={() => window.open(`/api/relatorios/${rel.id}/download`, '_blank')}>
+                  <Button variant="outline" size="sm" onClick={() => handleDownload(rel.id)}>
                     <Download className="h-4 w-4 mr-2" />
                     Download
                   </Button>
