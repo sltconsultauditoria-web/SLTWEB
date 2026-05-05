@@ -1,13 +1,12 @@
-﻿name: Deploy Frontend to GitHub Pages
+name: Deploy Frontend to GitHub Pages
 
 on:
   push:
     branches:
       - main
-  workflow_dispatch:
 
 jobs:
-  build-deploy:
+  build-and-deploy:
     runs-on: ubuntu-latest
 
     steps:
@@ -19,7 +18,7 @@ jobs:
         with:
           node-version: 18
 
-      - name: Install deps
+      - name: Install dependencies
         run: |
           cd frontend
           npm install
@@ -27,9 +26,11 @@ jobs:
       - name: Build
         run: |
           cd frontend
-          PUBLIC_URL=/SLTWEB REACT_APP_API_URL=https://sltweb.onrender.com/api npm run build
+          REACT_APP_API_URL=https://sltweb.onrender.com/api \
+          PUBLIC_URL=/SLTWEB \
+          npm run build
 
-      - name: Copy 404.html
+      - name: Copy index to 404
         run: |
           cp frontend/build/index.html frontend/build/404.html
 

@@ -72,7 +72,9 @@ def test_frontend_pages_workflow_has_required_controls():
 
     assert "Deploy Frontend to GitHub Pages" in workflow
     assert "peaceiris/actions-gh-pages@v3" in workflow
-    assert "PUBLIC_URL=/SLTWEB REACT_APP_API_URL=https://sltweb.onrender.com/api npm run build" in workflow
+    assert "REACT_APP_API_URL=https://sltweb.onrender.com/api \\" in workflow
+    assert "PUBLIC_URL=/SLTWEB \\" in workflow
+    assert "npm run build" in workflow
     assert "cp frontend/build/index.html frontend/build/404.html" in workflow
     assert "npm install" in workflow
     assert "publish_dir: ./frontend/build" in workflow
