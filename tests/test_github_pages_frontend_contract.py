@@ -84,6 +84,8 @@ def test_frontend_pages_workflow_has_required_controls():
     workflow = read_text(ROOT / ".github" / "workflows" / "frontend-pages.yml")
 
     assert "Deploy Frontend to GitHub Pages" in workflow
+    assert "workflow_dispatch" in workflow
+    assert "permissions:\n  contents: write" in workflow
     assert "peaceiris/actions-gh-pages@v3" in workflow
     assert "REACT_APP_API_URL=https://sltweb.onrender.com/api \\" in workflow
     assert "PUBLIC_URL=/SLTWEB \\" in workflow
@@ -91,6 +93,8 @@ def test_frontend_pages_workflow_has_required_controls():
     assert "cp frontend/build/index.html frontend/build/404.html" in workflow
     assert "npm install" in workflow
     assert "publish_dir: ./frontend/build" in workflow
+    assert "publish_branch: gh-pages" in workflow
+    assert "force_orphan: true" in workflow
 
 
 def test_404_fallback_source_exists():
