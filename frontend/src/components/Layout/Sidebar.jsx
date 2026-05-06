@@ -16,6 +16,7 @@ import {
   Shield,
   ScanLine,
   UserCog,
+  LibraryBig,
 } from 'lucide-react';
 import { useState } from 'react';
 import { useAuth } from '@/context/AuthContext';
@@ -27,6 +28,7 @@ const menuItems = [
   { icon: Building2, label: 'Empresas', path: '/empresas' },
   { icon: FileText, label: 'Documentos', path: '/documentos' },
   { icon: Calendar, label: 'Obrigações', path: '/obrigacoes' },
+  { icon: LibraryBig, label: 'Catálogo Fiscal', path: '/catalogo-obrigacoes' },
   { icon: Receipt, label: 'DAS/Guias', path: '/guias' },
   { icon: Calculator, label: 'Fiscal (IRIS)', path: '/fiscal' },
   { icon: Shield, label: 'Auditoria', path: '/auditoria' },

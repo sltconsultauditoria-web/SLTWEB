@@ -1,0 +1,2 @@
+from .seed_obrigacoes_acessorias import ensure_obrigacoes_indexes, seed_obrigacoes_acessorias, sync_obrigacoes_for_all_empresas
+

@@ -6,6 +6,7 @@ from bson import ObjectId
 from fastapi.testclient import TestClient
 
 import backend.main_enterprise as app_module
+from backend.seeds.seed_obrigacoes_acessorias import seed_obrigacoes_acessorias
 from backend.integrations.government.ecac_service import GovernmentECACService
 from backend.integrations.government.pgdas_service import PGDAService
 from backend.integrations.government.sefaz_service import SEFAZService
@@ -235,6 +236,7 @@ def make_db():
 def client(monkeypatch):
     monkeypatch.setattr(app_module, "db", make_db())
     monkeypatch.setattr(app_module, "client", FakeClient())
+    seed_obrigacoes_acessorias(app_module.db, force=True)
     return TestClient(app_module.app)
 
 
@@ -274,7 +276,11 @@ def auth_headers(role="admin", email=None):
         ("GET", "/api/empresas", {}),
         ("GET", "/api/documentos", {}),
         ("GET", "/api/guias", {}),
-        ("GET", "/api/obrigacoes", {}),
+        ("GET", "/api/obrigacoes", {"headers": auth_headers("admin", "admin@empresa.com")}),
+        ("GET", "/api/fiscal/obrigacoes", {"headers": auth_headers("admin", "admin@empresa.com")}),
+        ("GET", "/api/obrigacoes/catalogo", {"headers": auth_headers("admin", "admin@empresa.com")}),
+        ("GET", "/api/obrigacoes/dashboard", {"headers": auth_headers("admin", "admin@empresa.com")}),
+        ("GET", "/api/obrigacoes/calendario", {"headers": auth_headers("admin", "admin@empresa.com")}),
         ("GET", "/api/alertas", {}),
         ("GET", "/api/auditoria", {}),
         ("GET", "/api/auditoria/estatisticas", {}),
@@ -372,6 +378,83 @@ def test_empresas_and_documentos_payloads_are_normalized(client):
     assert documento["empresa_id"] == empresa["id"]
     assert "nome" not in documento
     assert "empresa" not in documento
+
+
+def test_obrigacoes_catalogo_seed_is_idempotent(client):
+    from backend.seeds.seed_obrigacoes_acessorias import seed_obrigacoes_acessorias
+
+    first = seed_obrigacoes_acessorias(app_module.db, force=True)
+    second = seed_obrigacoes_acessorias(app_module.db, force=False)
+
+    assert first["total"] == 20
+    assert app_module.db["obrigacoes_catalogo"].count_documents({}) == 20
+    assert second["seeded"] is False
+
+
+def test_obrigacoes_catalogo_endpoints_and_generation(client):
+    headers = auth_headers("admin", "admin@empresa.com")
+    catalogo = client.get("/api/obrigacoes/catalogo", headers=headers, follow_redirects=False)
+    assert catalogo.status_code == 200
+    assert len(catalogo.json()["data"]) == 20
+
+    por_regime = client.get("/api/obrigacoes/por-regime/simples_nacional", headers=headers, follow_redirects=False)
+    assert por_regime.status_code == 200
+    assert all("simples_nacional" in (item.get("regimes") or []) or "todos" in (item.get("regimes") or []) for item in por_regime.json()["data"])
+
+    empresa_id = str(app_module.db["empresas"].items[0]["_id"])
+    empresa = client.get(f"/api/obrigacoes/empresa/{empresa_id}", headers=headers, follow_redirects=False)
+    assert empresa.status_code == 200
+    payload = empresa.json()["data"]
+    assert isinstance(payload, list)
+
+    calendario = client.get("/api/obrigacoes/calendario", headers=headers, follow_redirects=False)
+    assert calendario.status_code == 200
+    assert "dias" in calendario.json()["data"]
+
+    dashboard = client.get("/api/obrigacoes/dashboard", headers=headers, follow_redirects=False)
+    assert dashboard.status_code == 200
+    assert "por_regime" in dashboard.json()["data"]
+
+
+def test_obrigacoes_generation_validation_and_reseed_rbac(client):
+    admin_headers = auth_headers("admin", "admin@empresa.com")
+    viewer_headers = auth_headers("viewer", "viewer1@empresa.com")
+    empresa_id = str(app_module.db["empresas"].items[0]["_id"])
+
+    invalid = client.post("/api/obrigacoes/gerar-competencia", json={"empresa_id": empresa_id}, headers=admin_headers, follow_redirects=False)
+    assert invalid.status_code == 422
+
+    valid = client.post(
+        "/api/obrigacoes/gerar-competencia",
+        json={"empresa_id": empresa_id, "competencia": "2026-05"},
+        headers=admin_headers,
+        follow_redirects=False,
+    )
+    assert valid.status_code == 200
+    assert valid.json()["data"]["empresa_id"] == empresa_id
+
+    validate_invalid = client.post(
+        "/api/obrigacoes/validar",
+        json={"competencia": "2026-05"},
+        headers=admin_headers,
+        follow_redirects=False,
+    )
+    assert validate_invalid.status_code == 422
+
+    validate_valid = client.post(
+        "/api/obrigacoes/validar",
+        json={"codigo": "PGDASD", "competencia": "2026-05", "regime": "simples_nacional", "payload": {"rbt12": 100000, "folha": 30000}},
+        headers=admin_headers,
+        follow_redirects=False,
+    )
+    assert validate_valid.status_code == 200
+    assert validate_valid.json()["data"]["valid"] is True
+
+    viewer_reseed = client.post("/api/obrigacoes/reseed", headers=viewer_headers, follow_redirects=False)
+    assert viewer_reseed.status_code == 403
+
+    admin_reseed = client.post("/api/obrigacoes/reseed", headers=admin_headers, follow_redirects=False)
+    assert admin_reseed.status_code == 200
 
 
 def test_sharepoint_sync_endpoint_returns_200_without_config(client, monkeypatch):

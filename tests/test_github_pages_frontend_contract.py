@@ -78,6 +78,7 @@ def test_app_router_uses_sltweb_basename_and_routes():
     assert 'basename="/SLTWEB"' in app_js
     assert 'path="/login"' in app_js
     assert 'path="/dashboard"' in app_js
+    assert 'path="/catalogo-obrigacoes"' in app_js
 
 
 def test_frontend_pages_workflow_has_required_controls():
@@ -144,6 +145,8 @@ def test_form_field_contracts_are_normalized():
     login_page = read_text(FRONTEND / "src" / "pages" / "LoginPage.jsx")
     empresas = read_text(FRONTEND / "src" / "pages" / "Empresas.jsx")
     documentos = read_text(FRONTEND / "src" / "pages" / "Documentos.jsx")
+    obrigacoes = read_text(FRONTEND / "src" / "pages" / "Obrigacoes.jsx")
+    catalogo = read_text(FRONTEND / "src" / "pages" / "CatalogoObrigacoes.jsx")
 
     assert 'useState("admin123")' not in login_page
     assert "regime_tributario" in empresas
@@ -156,6 +159,10 @@ def test_form_field_contracts_are_normalized():
     assert "empresa_id: ''" in documentos
     assert "api.post('/documentos', payload)" in documentos
     assert "data: {" not in documentos
+    assert "/obrigacoes/dashboard" in obrigacoes
+    assert "/obrigacoes/calendario" in obrigacoes
+    assert "/obrigacoes/catalogo" in catalogo
+    assert "Catálogo Fiscal" in catalogo
 
 
 def test_relatorios_frontend_uses_api_client_and_blob_exports():

@@ -1,4 +1,5 @@
 import asyncio
+import json
 from datetime import date, datetime, timedelta
 from io import BytesIO
 import os
@@ -21,6 +22,8 @@ from backend.integrations.government.ecac_service import GovernmentECACService
 from backend.integrations.government.pgdas_service import PGDAService
 from backend.integrations.government.sefaz_service import SEFAZService
 from backend.core.security import create_access_token, decode_access_token, get_password_hash, verify_password
+from backend.seeds.seed_obrigacoes_acessorias import ensure_obrigacoes_indexes, seed_obrigacoes_acessorias, sync_obrigacoes_for_all_empresas, sync_obrigacoes_for_empresa
+from backend.services.prazos_obrigacoes_service import calcular_status, calcular_vencimento, gerar_alertas_vencimento, is_obrigacao_aplicavel
 from backend.services.decision_engine import DecisionEngine
 from backend.services.email_service import public_smtp_config
 from backend.services.notification_service import (
@@ -1852,6 +1855,28 @@ class UsuarioUpdateRequest(BaseModel):
     ativo: bool | None = None
 
 
+class ObrigacaoGerarCompetenciaRequest(BaseModel):
+    competencia: str = Field(..., min_length=4)
+    empresa_id: str | None = None
+    regime: str | None = None
+    uf: str | None = None
+    cnae: str | None = None
+
+
+class ObrigacaoValidarRequest(BaseModel):
+    codigo: str = Field(..., min_length=3)
+    competencia: str = Field(..., min_length=4)
+    empresa_id: str | None = None
+    regime: str | None = None
+    uf: str | None = None
+    payload: dict[str, Any] = Field(default_factory=dict)
+
+
+class ObrigacaoStatusRequest(BaseModel):
+    status: str = Field(..., min_length=2)
+    competencia: str | None = None
+
+
 def validate_user_role(role: Any) -> str:
     normalized = normalize_role(role or "viewer")
     if normalized not in {"admin", "super_admin", "viewer", "user", "operador"}:
@@ -1941,6 +1966,136 @@ def update_item(collection_name: str, item_id: str, payload: dict[str, Any]) -> 
         raise HTTPException(status_code=404, detail="Registro nao encontrado")
     updated = db[collection_name].find_one(object_query(item_id)) or document
     return serialize(updated)
+
+
+def runtime_obrigacoes_collection_name() -> str:
+    try:
+        if safe_count("obrigacoes_empresas") > 0:
+            return "obrigacoes_empresas"
+    except Exception:
+        pass
+    return "obrigacoes"
+
+
+def list_runtime_obrigacoes(limit: int = 200) -> list[dict[str, Any]]:
+    return list_collection(runtime_obrigacoes_collection_name(), limit=limit)
+
+
+def get_catalogo_obrigacoes() -> list[dict[str, Any]]:
+    return list_collection("obrigacoes_catalogo", limit=500)
+
+
+def get_obrigacao_catalogo_by_codigo(codigo: str) -> dict[str, Any] | None:
+    try:
+        item = db["obrigacoes_catalogo"].find_one({"codigo": codigo})
+        return serialize(item) if item else None
+    except Exception:
+        return None
+
+
+def normalize_regime_tri(value: Any) -> str:
+    raw = str(value or "").strip().lower()
+    mapping = {
+        "simples": "simples_nacional",
+        "simples_nacional": "simples_nacional",
+        "lucro real": "lucro_real",
+        "lucro_real": "lucro_real",
+        "lucro presumido": "lucro_presumido",
+        "lucro_presumido": "lucro_presumido",
+        "todos": "todos",
+    }
+    return mapping.get(raw, raw or "todos")
+
+
+def normalize_obrigacao_status(value: Any) -> str:
+    raw = str(value or "").strip().lower()
+    mapping = {
+        "em dia": "em_dia",
+        "emdia": "em_dia",
+        "em_dia": "em_dia",
+        "vence hoje": "vence_hoje",
+        "vence_hoje": "vence_hoje",
+        "vencendo": "vencendo",
+        "atrasada": "atrasada",
+        "entregue": "entregue",
+        "dispensada": "dispensada",
+        "nao aplicavel": "nao_aplicavel",
+        "nao_aplicável": "nao_aplicavel",
+        "nao_aplicavel": "nao_aplicavel",
+    }
+    return mapping.get(raw, raw or "em_dia")
+
+
+def current_company_document(company_id: str) -> dict[str, Any] | None:
+    return db["empresas"].find_one(object_query(company_id))
+
+
+def generate_company_obligations(company: dict[str, Any], competencia: str | None = None) -> dict[str, Any]:
+    company_serialized = serialize(company)
+    if not company_serialized:
+        return {"created": 0, "updated": 0, "alerts": 0, "empresa_id": None}
+    return sync_obrigacoes_for_empresa(db, company_serialized, competencia=competencia)
+
+
+def validate_obrigacao_catalogo(catalogo_item: dict[str, Any], payload: dict[str, Any]) -> dict[str, Any]:
+    regime = normalize_regime_tri(payload.get("regime") or payload.get("perfil") or payload.get("regime_tributario") or "")
+    uf = str(payload.get("uf") or "").strip().upper() or None
+    if not is_obrigacao_aplicavel(catalogo_item, regime, uf=uf):
+        return {"valid": False, "status": "nao_aplicavel", "errors": ["Obrigacao nao aplicavel ao regime informado"]}
+
+    codigo = str(catalogo_item.get("codigo") or "").upper()
+    competence = str(payload.get("competencia") or "").strip()
+    errors: list[str] = []
+    warnings: list[str] = []
+
+    if codigo == "PGDASD":
+        rbt12 = float(payload.get("payload", {}).get("rbt12") or payload.get("rbt12") or 0)
+        folha = float(payload.get("payload", {}).get("folha") or payload.get("folha") or 0)
+        if regime != "simples_nacional":
+            errors.append("PGDAS-D aplica apenas ao Simples Nacional")
+        if rbt12 <= 0:
+            errors.append("RBT12 obrigatorio para PGDAS-D")
+        fator_r = 0 if rbt12 <= 0 else round((folha / rbt12) * 100, 2)
+        warnings.append(f"Fator R calculado: {fator_r}%")
+    elif codigo == "SPEDECD" and not payload.get("payload", {}).get("ativo") and not payload.get("payload", {}).get("passivo"):
+        errors.append("ECD exige ativo e passivo informados")
+    elif codigo == "SPEDECF" and not payload.get("payload", {}).get("ecd_gerada"):
+        errors.append("ECF depende de ECD gerada")
+    elif codigo == "DEFIS" and regime != "simples_nacional":
+        errors.append("DEFIS aplica apenas ao Simples Nacional")
+    elif codigo == "EFDCONTRIB" and regime not in {"lucro_real", "lucro_presumido"}:
+        errors.append("EFD Contribuições aplica apenas a Lucro Real ou Lucro Presumido")
+    elif codigo == "ESOCIAL":
+        cpf_cnpj = str(payload.get("payload", {}).get("cpf_cnpj") or payload.get("cpf_cnpj") or "").strip()
+        if len(re.sub(r"\D", "", cpf_cnpj)) not in {11, 14}:
+            errors.append("CPF/CNPJ invalido para eSocial")
+        if not competence or not re.fullmatch(r"\d{4}-\d{2}", competence):
+            errors.append("Competencia invalida; use AAAA-MM")
+
+    return {
+        "valid": not errors,
+        "codigo": codigo,
+        "competencia": competence,
+        "regime": regime,
+        "uf": uf,
+        "errors": errors,
+        "warnings": warnings,
+    }
+
+
+def enrich_obrigacao_instance(item: dict[str, Any]) -> dict[str, Any]:
+    serialized = serialize(item)
+    codigo = serialized.get("codigo_catalogo") or serialized.get("obrigacao_codigo")
+    if codigo:
+        catalogo = get_obrigacao_catalogo_by_codigo(str(codigo))
+        if catalogo:
+            serialized["catalogo"] = catalogo
+            serialized.setdefault("nome", catalogo.get("nome"))
+            serialized.setdefault("descricao", catalogo.get("descricao"))
+            serialized.setdefault("campos", catalogo.get("campos", []))
+            serialized.setdefault("validacoes", catalogo.get("validacoes", []))
+            serialized.setdefault("integracoes", catalogo.get("integracoes", []))
+    return serialized
 
 
 def delete_item(collection_name: str, item_id: str) -> dict[str, Any]:
@@ -2182,21 +2337,22 @@ def me(authorization: str = Depends(require_bearer_authorization)):
 def dashboard():
     success_statuses = ["sucesso", "processado", "concluido", "concluida", "done", "processed"]
     delivered_statuses = ["entregue", "entregues", "concluido", "concluida", "sucesso"]
+    obrigacoes_collection = runtime_obrigacoes_collection_name()
     empresas = safe_count("empresas")
     documentos = safe_count("documentos")
     documentos_processados = safe_count("documentos", status_in(success_statuses))
     guias = safe_count("guias")
     usuarios = safe_count("usuarios")
     alertas = safe_count("alertas")
-    obrigacoes = safe_count("obrigacoes")
+    obrigacoes = safe_count(obrigacoes_collection)
     certidoes = safe_count("certidoes")
     debitos = safe_count("debitos")
     ocr_processados = safe_count("ocr_documentos")
     ocr_sucesso = safe_count("ocr_documentos", status_in(success_statuses))
     ocr_pendentes = safe_count("ocr_documentos", {"status": {"$in": ["recebido", "pendente", "processando"]}})
     ocr_erros = safe_count("ocr_documentos", status_not_in(success_statuses))
-    obrigacoes_pendentes = safe_count("obrigacoes", {"status": "pendente"})
-    obrigacoes_entregues = safe_count("obrigacoes", status_in(delivered_statuses))
+    obrigacoes_pendentes = safe_count(obrigacoes_collection, {"status": {"$in": ["pendente", "vencendo", "vence_hoje", "atrasada"]}})
+    obrigacoes_entregues = safe_count(obrigacoes_collection, status_in(delivered_statuses))
     alertas_criticos = safe_count(
         "alertas",
         {
@@ -2220,11 +2376,21 @@ def dashboard():
     }
 
     proximos_vencimentos = list(
-        db["obrigacoes"]
+        db[obrigacoes_collection]
         .find({}, {"_id": 0})
         .sort("vencimento", 1)
         .limit(6)
     )
+    obrigacoes_por_regime = {
+        "lucro_real": safe_count(obrigacoes_collection, {"regime": "lucro_real"}),
+        "lucro_presumido": safe_count(obrigacoes_collection, {"regime": "lucro_presumido"}),
+        "simples_nacional": safe_count(obrigacoes_collection, {"regime": "simples_nacional"}),
+    }
+    obrigacoes_por_orgao: dict[str, int] = {}
+    for item in list_collection(obrigacoes_collection, limit=500):
+        orgao = str(item.get("orgao_responsavel") or "desconhecido")
+        obrigacoes_por_orgao[orgao] = obrigacoes_por_orgao.get(orgao, 0) + 1
+    risco_multa_estimado = round((obrigacoes_pendentes * 1500) + (safe_count("alertas", {"prioridade": {"$in": ["critica", "alta"]}, **alert_open_query()}) * 2500), 2)
     documentos_recentes = list(db["documentos"].find({}, {"_id": 0}).sort("created_at", -1).limit(5))
     alertas_recentes = list(db["alertas"].find({}, {"_id": 0}).sort("created_at", -1).limit(5))
     eventos_recentes = list(db["pipeline_events"].find({}, {"_id": 0}).sort("created_at", -1).limit(5))
@@ -2268,6 +2434,9 @@ def dashboard():
         "taxa_ocr_sucesso": 0 if ocr_processados == 0 else round((ocr_sucesso / ocr_processados) * 100, 2),
         "taxa_conformidade": 0 if obrigacoes == 0 else round((obrigacoes_entregues / obrigacoes) * 100, 2),
         "percentual_obrigacoes_entregues": 0 if obrigacoes == 0 else round((obrigacoes_entregues / obrigacoes) * 100, 2),
+        "obrigacoes_por_regime": obrigacoes_por_regime,
+        "obrigacoes_por_orgao": obrigacoes_por_orgao,
+        "risco_multa_estimado": risco_multa_estimado,
         "alertas_por_criticidade": alertas_por_criticidade,
         "eventos_novos": eventos_novos,
         "eventos_criticos": eventos_criticos,
@@ -2544,12 +2713,20 @@ def empresas():
 @app.post("/api/empresas")
 def criar_empresa(payload: dict):
     data = create_item("empresas", normalize_empresa_payload(payload))
+    try:
+        generate_company_obligations(data)
+    except Exception:
+        pass
     return envelope(data, **data)
 
 
 @app.put("/api/empresas/{item_id}")
 def atualizar_empresa(item_id: str, payload: dict):
     data = update_item("empresas", item_id, normalize_empresa_payload(payload, partial=True))
+    try:
+        generate_company_obligations(data)
+    except Exception:
+        pass
     return envelope(data, **data)
 
 
@@ -3503,13 +3680,149 @@ def check_and_notify_alerts():
 
 
 @app.get("/api/obrigacoes")
-def listar_obrigacoes():
-    return collection_response("obrigacoes", "obrigacoes")
+def listar_obrigacoes(authorization: str = Depends(require_bearer_authorization)):
+    _ = authorization
+    data = list_runtime_obrigacoes()
+    return envelope(data, total=len(data), obrigacoes=data)
 
 
 @app.get("/api/fiscal/obrigacoes")
-def fiscal_obrigacoes():
-    return collection_response("obrigacoes", "obrigacoes")
+def fiscal_obrigacoes(authorization: str = Depends(require_bearer_authorization)):
+    _ = authorization
+    data = list_runtime_obrigacoes()
+    return envelope(data, total=len(data), obrigacoes=data)
+
+
+@app.get("/api/obrigacoes/catalogo")
+def catalogo_obrigacoes(authorization: str = Depends(require_bearer_authorization)):
+    _ = authorization
+    data = get_catalogo_obrigacoes()
+    return envelope(data, total=len(data), catalogo=data)
+
+
+@app.get("/api/obrigacoes/catalogo/{codigo}")
+def catalogo_obrigacao_por_codigo(codigo: str, authorization: str = Depends(require_bearer_authorization)):
+    _ = authorization
+    item = get_obrigacao_catalogo_by_codigo(codigo.upper())
+    if not item:
+        raise HTTPException(status_code=404, detail="Obrigacao nao encontrada")
+    return envelope(item, **item)
+
+
+@app.get("/api/obrigacoes/por-regime/{regime}")
+def obrigacoes_por_regime(regime: str, authorization: str = Depends(require_bearer_authorization)):
+    _ = authorization
+    regime_norm = normalize_regime_tri(regime)
+    catalogo = [
+        item
+        for item in get_catalogo_obrigacoes()
+        if is_obrigacao_aplicavel(item, regime_norm)
+    ]
+    return envelope(catalogo, total=len(catalogo), obrigacoes=catalogo)
+
+
+@app.get("/api/obrigacoes/empresa/{empresa_id}")
+def obrigacoes_por_empresa(empresa_id: str, authorization: str = Depends(require_bearer_authorization)):
+    _ = authorization
+    data = [
+        enrich_obrigacao_instance(item)
+        for item in list_runtime_obrigacoes(limit=1000)
+        if str(item.get("empresa_id") or item.get("empresaId") or "") == empresa_id
+    ]
+    return envelope(data, total=len(data), obrigacoes=data)
+
+
+@app.post("/api/obrigacoes/gerar-competencia")
+def gerar_obrigacoes_competencia(payload: ObrigacaoGerarCompetenciaRequest, authorization: str = Depends(require_bearer_authorization)):
+    require_admin(authorization)
+    if not payload.empresa_id:
+        raise HTTPException(status_code=422, detail="empresa_id obrigatorio")
+    company = current_company_document(payload.empresa_id)
+    if company is None:
+        raise HTTPException(status_code=404, detail="Empresa nao encontrada")
+    company_payload = serialize(company)
+    company_payload["regime_tributario"] = payload.regime or company_payload.get("regime_tributario")
+    company_payload["uf"] = payload.uf or company_payload.get("uf")
+    company_payload["cnae"] = payload.cnae or company_payload.get("cnae")
+    result = generate_company_obligations(company_payload, competencia=payload.competencia)
+    return envelope(result, **result)
+
+
+@app.post("/api/obrigacoes/validar")
+def validar_obrigacao(payload: ObrigacaoValidarRequest, authorization: str = Depends(require_bearer_authorization)):
+    _ = authorization
+    catalogo = get_obrigacao_catalogo_by_codigo(payload.codigo.upper())
+    if not catalogo:
+        raise HTTPException(status_code=404, detail="Obrigacao nao encontrada")
+    result = validate_obrigacao_catalogo(catalogo, payload.model_dump(exclude_none=True) if hasattr(payload, "model_dump") else payload.dict(exclude_none=True))
+    status_code = status.HTTP_200_OK if result.get("valid") else status.HTTP_422_UNPROCESSABLE_ENTITY
+    if not result.get("valid") and result.get("status") == "nao_aplicavel":
+        status_code = status.HTTP_200_OK
+    return Response(content=json.dumps(envelope(result, **result)), media_type="application/json", status_code=status_code)
+
+
+@app.patch("/api/obrigacoes/{item_id}/status")
+def atualizar_status_obrigacao(item_id: str, payload: ObrigacaoStatusRequest, authorization: str = Depends(require_bearer_authorization)):
+    require_admin(authorization)
+    target = db["obrigacoes_empresas"].find_one(object_query(item_id)) or db["obrigacoes"].find_one(object_query(item_id))
+    if not target:
+        raise HTTPException(status_code=404, detail="Obrigacao nao encontrada")
+    update_fields = {"status": normalize_obrigacao_status(payload.status), "updated_at": now()}
+    db["obrigacoes_empresas"].update_one(object_query(item_id), {"$set": update_fields}, upsert=False)
+    db["obrigacoes"].update_one(object_query(item_id), {"$set": update_fields}, upsert=False)
+    updated = db["obrigacoes_empresas"].find_one(object_query(item_id)) or db["obrigacoes"].find_one(object_query(item_id)) or target
+    return envelope(enrich_obrigacao_instance(updated), **enrich_obrigacao_instance(updated))
+
+
+@app.get("/api/obrigacoes/dashboard")
+def obrigacoes_dashboard(authorization: str = Depends(require_bearer_authorization)):
+    _ = authorization
+    data = {
+        "total": safe_count(runtime_obrigacoes_collection_name()),
+        "em_dia": safe_count(runtime_obrigacoes_collection_name(), {"status": "em_dia"}),
+        "vence_hoje": safe_count(runtime_obrigacoes_collection_name(), {"status": "vence_hoje"}),
+        "vencendo": safe_count(runtime_obrigacoes_collection_name(), {"status": "vencendo"}),
+        "atrasadas": safe_count(runtime_obrigacoes_collection_name(), {"status": "atrasada"}),
+        "entregues": safe_count(runtime_obrigacoes_collection_name(), {"status": "entregue"}),
+        "por_regime": {
+            "lucro_real": safe_count(runtime_obrigacoes_collection_name(), {"regime": "lucro_real"}),
+            "lucro_presumido": safe_count(runtime_obrigacoes_collection_name(), {"regime": "lucro_presumido"}),
+            "simples_nacional": safe_count(runtime_obrigacoes_collection_name(), {"regime": "simples_nacional"}),
+        },
+        "por_orgao": {},
+        "risco_multa_estimado": 0,
+        "proximas": [enrich_obrigacao_instance(item) for item in list_runtime_obrigacoes(limit=20)[:10]],
+    }
+    for item in list_runtime_obrigacoes(limit=500):
+        orgao = str(item.get("orgao_responsavel") or "desconhecido")
+        data["por_orgao"][orgao] = data["por_orgao"].get(orgao, 0) + 1
+    data["risco_multa_estimado"] = round((data["atrasadas"] * 1500) + (safe_count("alertas", {"prioridade": {"$in": ["critica", "alta"]}, **alert_open_query()}) * 2500), 2)
+    return envelope(data, **data)
+
+
+@app.get("/api/obrigacoes/calendario")
+def obrigacoes_calendario(competencia: str | None = None, authorization: str = Depends(require_bearer_authorization)):
+    _ = authorization
+    if not competencia:
+        competencia = datetime.utcnow().strftime("%Y-%m")
+    items = [enrich_obrigacao_instance(item) for item in list_runtime_obrigacoes(limit=500)]
+    calendar_map: dict[str, list[dict[str, Any]]] = {}
+    for item in items:
+        vencimento = item.get("vencimento")
+        if not vencimento:
+            continue
+        day = str(vencimento)[:10]
+        calendar_map.setdefault(day, []).append(item)
+    return envelope({"competencia": competencia, "dias": calendar_map, "itens": items}, competencia=competencia, dias=calendar_map, itens=items)
+
+
+@app.post("/api/obrigacoes/reseed")
+def reseed_obrigacoes(authorization: str = Depends(require_bearer_authorization)):
+    require_admin(authorization)
+    seed_result = seed_obrigacoes_acessorias(db, force=True)
+    company_summary = sync_obrigacoes_for_all_empresas(db)
+    data = {"seed": seed_result, "empresas": company_summary}
+    return envelope(data, **data)
 
 
 @app.post("/api/fiscal/guia")
@@ -3642,6 +3955,12 @@ def forgot_password(payload: dict):
 def start_pipeline_scheduler():
     global PIPELINE_SCHEDULER_STARTED
     ensure_default_auth_users()
+    try:
+        seed_result = seed_obrigacoes_acessorias(db, force=str(os.environ.get("SEED_OBRIGACOES", "0")).strip().lower() in {"1", "true", "yes", "on"})
+        if seed_result.get("seeded") or safe_count("obrigacoes_empresas") == 0:
+            sync_obrigacoes_for_all_empresas(db)
+    except Exception:
+        pass
 
     if PIPELINE_SCHEDULER_STARTED:
         return

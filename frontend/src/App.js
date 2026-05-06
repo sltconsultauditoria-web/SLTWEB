@@ -9,6 +9,7 @@ import Dashboard from "@/pages/Dashboard";
 import Empresas from "@/pages/Empresas";
 import Documentos from "@/pages/Documentos";
 import Obrigacoes from "@/pages/Obrigacoes";
+import CatalogoObrigacoes from "@/pages/CatalogoObrigacoes";
 import Guias from "@/pages/Guias";
 import Alertas from "@/pages/Alertas";
 import Relatorios from "@/pages/Relatorios";
@@ -45,6 +46,7 @@ function App() {
               <Route path="/empresas/:empresaId/timeline" element={<TimelineEmpresa />} />
               <Route path="/documentos" element={<Documentos />} />
               <Route path="/obrigacoes" element={<Obrigacoes />} />
+              <Route path="/catalogo-obrigacoes" element={<CatalogoObrigacoes />} />
               <Route path="/guias" element={<Guias />} />
               <Route path="/alertas" element={<Alertas />} />
               <Route path="/relatorios" element={<Relatorios />} />
