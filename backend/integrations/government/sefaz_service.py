@@ -14,6 +14,7 @@ def _seed(cnpj: str, periodo: str | None = None) -> int:
 
 class SEFAZService(GovernmentConnectorBase):
     provider_name = "sefaz"
+    real_supported = False
     required_env_vars = ("SEFAZ_API_URL", "SEFAZ_API_KEY")
 
     def _simulate(self, cnpj: str, periodo: str | None = None) -> dict[str, Any]:

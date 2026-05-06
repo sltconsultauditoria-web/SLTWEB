@@ -14,6 +14,7 @@ def _seed(cnpj: str, periodo: str | None = None) -> int:
 
 class PGDAService(GovernmentConnectorBase):
     provider_name = "pgdas"
+    real_supported = False
     required_env_vars = ("PGDAS_USERNAME", "PGDAS_PASSWORD", "PGDAS_BASE_URL")
 
     def _simulate(self, cnpj: str, periodo: str | None = None) -> dict[str, Any]:

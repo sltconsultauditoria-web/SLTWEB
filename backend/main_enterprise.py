@@ -18,6 +18,7 @@ from pydantic import BaseModel, Field
 from pymongo import MongoClient
 
 from backend.engines.fiscal_engine import FiscalEngine
+from backend.engines.sped_engine import SPEDEngine, TipoAuditoria
 from backend.integrations.government.ecac_service import GovernmentECACService
 from backend.integrations.government.pgdas_service import PGDAService
 from backend.integrations.government.sefaz_service import SEFAZService
@@ -94,7 +95,7 @@ PIPELINE_SCHEDULER_STARTED = False
 MODULE_PERMISSION_MATRIX: dict[str, set[str]] = {
     "admin": {"*"},
     "operador": {"ocr", "fiscal", "empresas", "relatorios", "dashboard", "alerts", "decisions", "integracoes", "tenants"},
-    "viewer": {"dashboard", "empresas", "ocr", "relatorios", "alerts", "timeline"},
+    "viewer": {"dashboard", "empresas", "ocr", "relatorios", "alerts", "timeline", "integracoes"},
 }
 
 DEFAULT_SUBSCRIPTION_PLANS: list[dict[str, Any]] = [
@@ -137,7 +138,7 @@ DEFAULT_TENANTS: list[dict[str, Any]] = [
 DEFAULT_ROLES_PERMISSIONS: list[dict[str, Any]] = [
     {"role": "admin", "modulos": ["*"]},
     {"role": "operador", "modulos": ["ocr", "fiscal", "empresas", "relatorios", "dashboard", "alerts", "decisions", "integracoes", "timeline"]},
-    {"role": "viewer", "modulos": ["dashboard", "empresas", "ocr", "relatorios", "alerts", "timeline"]},
+    {"role": "viewer", "modulos": ["dashboard", "empresas", "ocr", "relatorios", "alerts", "timeline", "integracoes"]},
 ]
 
 
@@ -185,10 +186,8 @@ def module_allowed_for_role(role: str, module: str) -> bool:
 
 
 def enforce_module_permission(module: str, authorization: str | None) -> None:
-    token = bearer_token(authorization)
-    if not token:
-        return
-    role = current_role_from_authorization(authorization)
+    current_user = decode_current_user(authorization)
+    role = normalize_role(current_user.get("role") or current_user.get("perfil"))
     if not module_allowed_for_role(role, module):
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Acesso negado para este modulo")
 
@@ -1830,6 +1829,18 @@ def require_module_access(module: str, authorization: str | None) -> dict[str, A
     return current_user
 
 
+def require_integration_access(authorization: str = Depends(require_bearer_authorization)) -> dict[str, Any]:
+    return require_module_access("integracoes", authorization)
+
+
+def require_integration_admin_access(authorization: str = Depends(require_bearer_authorization)) -> dict[str, Any]:
+    current_user = require_integration_access(authorization)
+    role = normalize_role(current_user.get("role") or current_user.get("perfil"))
+    if role != "admin":
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Admin access required")
+    return current_user
+
+
 def require_relatorios_access(authorization: str = Depends(require_bearer_authorization)) -> dict[str, Any]:
     return require_module_access("relatorios", authorization)
 
@@ -1875,6 +1886,23 @@ class ObrigacaoValidarRequest(BaseModel):
 class ObrigacaoStatusRequest(BaseModel):
     status: str = Field(..., min_length=2)
     competencia: str | None = None
+
+
+class SPEDValidarRequest(BaseModel):
+    tipo: str = Field(default="sped_fiscal", min_length=3)
+    arquivo_path: str | None = None
+    conteudo: str | None = None
+    empresa_id: str | None = None
+    competencia: str | None = None
+    regime: str | None = None
+
+
+class SPEDGerarArquivoRequest(BaseModel):
+    tipo: str = Field(default="sped_fiscal", min_length=3)
+    empresa_id: str | None = None
+    competencia: str | None = None
+    regime: str | None = None
+    cnpj: str | None = None
 
 
 def validate_user_role(role: Any) -> str:
@@ -2582,14 +2610,11 @@ def integracao_ecac_status(cnpj: str, authorization: str | None = Header(default
     enforce_module_permission("integracoes", authorization)
     contract = ecac_service.consultar_status(cnpj)
     data = dict(contract.get("data") or {})
-    data.update(
-        {
-            "modo": contract.get("mode"),
-            "provider": contract.get("provider"),
-            "errors": contract.get("errors") or [],
-        }
-    )
-    return envelope(data, **data)
+    payload = {**contract, **data}
+    payload["data"] = data
+    payload["modo"] = payload.get("mode")
+    extra = {key: value for key, value in payload.items() if key != "data"}
+    return envelope(payload, **extra)
 
 
 @app.get("/api/integracoes/ecac/debitos")
@@ -2598,14 +2623,15 @@ def integracao_ecac_debitos(cnpj: str, authorization: str | None = Header(defaul
     contract = ecac_service.consultar_debitos(cnpj)
     debitos = list(contract.get("data") or [])
     payload = {
+        **{k: v for k, v in contract.items() if k != "data"},
         "cnpj": digits_only(cnpj),
         "debitos": debitos,
         "total_debitos": len(debitos),
+        "data": debitos,
         "modo": contract.get("mode"),
-        "provider": contract.get("provider"),
-        "errors": contract.get("errors") or [],
     }
-    return envelope(payload, total=len(debitos), **payload)
+    extra = {key: value for key, value in payload.items() if key != "data"}
+    return envelope(payload, total=len(debitos), **extra)
 
 
 @app.get("/api/integracoes/pgdas/consultar")
@@ -2613,14 +2639,11 @@ def integracao_pgdas_consultar(cnpj: str, periodo: str | None = None, authorizat
     enforce_module_permission("integracoes", authorization)
     contract = pgdas_service.consultar_pgdas(cnpj, periodo)
     data = dict(contract.get("data") or {})
-    data.update(
-        {
-            "modo": contract.get("mode"),
-            "provider": contract.get("provider"),
-            "errors": contract.get("errors") or [],
-        }
-    )
-    return envelope(data, **data)
+    payload = {**contract, **data}
+    payload["data"] = data
+    payload["modo"] = payload.get("mode")
+    extra = {key: value for key, value in payload.items() if key != "data"}
+    return envelope(payload, **extra)
 
 
 @app.get("/api/integracoes/sefaz/nfe")
@@ -2628,14 +2651,11 @@ def integracao_sefaz_nfe(cnpj: str, periodo: str | None = None, authorization: s
     enforce_module_permission("integracoes", authorization)
     contract = sefaz_service.consultar_nfe(cnpj, periodo)
     data = dict(contract.get("data") or {})
-    data.update(
-        {
-            "modo": contract.get("mode"),
-            "provider": contract.get("provider"),
-            "errors": contract.get("errors") or [],
-        }
-    )
-    return envelope(data, total=len(data.get("documentos", [])), **data)
+    payload = {**contract, **data}
+    payload["data"] = data
+    payload["modo"] = payload.get("mode")
+    extra = {key: value for key, value in payload.items() if key != "data"}
+    return envelope(payload, total=len(data.get("documentos", [])), **extra)
 
 
 @app.get("/api/decisions")
@@ -3099,70 +3119,143 @@ def auditoria_stats():
 
 
 @app.get("/api/robots/ingestion/status")
-def robot_status():
+def robot_status(_current_user: dict[str, Any] = Depends(require_integration_access)):
     data = {"status": "idle", "jobs": safe_count("robots")}
     return envelope(data, total=1, **data)
 
 
 @app.post("/api/robots/ingestion/start")
-def robot_start():
+def robot_start(_current_user: dict[str, Any] = Depends(require_integration_admin_access)):
     data = {"status": "started"}
     return envelope(data, total=1, **data)
 
 
 @app.post("/api/robots/ingestion/stop")
-def robot_stop():
+def robot_stop(_current_user: dict[str, Any] = Depends(require_integration_admin_access)):
     data = {"status": "stopped"}
     return envelope(data, total=1, **data)
 
 
 @app.post("/api/robots/ingestion/run-now")
-def robot_run_now():
+def robot_run_now(_current_user: dict[str, Any] = Depends(require_integration_admin_access)):
     data = {"status": "queued"}
     return envelope(data, total=1, **data)
 
 
 @app.get("/api/robots/ingestion/files")
-def robot_files():
+def robot_files(_current_user: dict[str, Any] = Depends(require_integration_access)):
     data = list_collection("robot_files")
     return envelope(data, files=data)
 
 
 @app.get("/api/robots/ingestion/history")
-def robot_history():
+def robot_history(_current_user: dict[str, Any] = Depends(require_integration_access)):
     data = list_collection("robot_history")
     return envelope(data, history=data)
 
 
 @app.get("/api/sharepoint/status")
-def sharepoint():
-    configured = bool(os.environ.get("SHAREPOINT_SITE_URL") and (os.environ.get("SHAREPOINT_DRIVE_ID") or os.environ.get("SHAREPOINT_SITE_ID")))
+def sharepoint(_current_user: dict[str, Any] = Depends(require_integration_access)):
+    site_url = os.environ.get("SHAREPOINT_SITE_URL")
+    drive_id = os.environ.get("SHAREPOINT_DRIVE_ID")
+    site_id = os.environ.get("SHAREPOINT_SITE_ID")
+    folder_path = os.environ.get("SHAREPOINT_FOLDER_PATH")
+    tenant_id = os.environ.get("AZURE_TENANT_ID")
+    client_id = os.environ.get("AZURE_CLIENT_ID")
+    client_secret = os.environ.get("AZURE_CLIENT_SECRET")
+    missing_env_vars = [
+        name
+        for name, value in [
+            ("AZURE_TENANT_ID", tenant_id),
+            ("AZURE_CLIENT_ID", client_id),
+            ("AZURE_CLIENT_SECRET", client_secret),
+            ("SHAREPOINT_SITE_URL", site_url),
+            ("SHAREPOINT_DRIVE_ID", drive_id),
+            ("SHAREPOINT_SITE_ID", site_id),
+            ("SHAREPOINT_FOLDER_PATH", folder_path),
+        ]
+        if not value
+    ]
+    configured = not missing_env_vars and bool(site_url and (drive_id or site_id))
+    graph_configured = bool(tenant_id and client_id and client_secret)
     data = {
-        "status": "configured" if configured else "not_configured",
-        "sync": configured,
-        "site_url_configured": bool(os.environ.get("SHAREPOINT_SITE_URL")),
-        "site_id_configured": bool(os.environ.get("SHAREPOINT_SITE_ID")),
-        "drive_id_configured": bool(os.environ.get("SHAREPOINT_DRIVE_ID")),
-        "graph_configured": bool(os.environ.get("AZURE_TENANT_ID") and os.environ.get("AZURE_CLIENT_ID") and os.environ.get("AZURE_CLIENT_SECRET")),
+        "provider": "sharepoint",
+        "mode": "real" if configured else "not_configured",
+        "modo": "real" if configured else "not_configured",
+        "configured": configured,
+        "status": "ok" if configured else "not_configured",
+        "message": "SharePoint configurado" if configured else "SharePoint nao configurado; operacao em log_only",
+        "next_action": "Executar sincronizacao Graph" if configured else "Configurar variaveis AZURE_* e SHAREPOINT_*",
+        "token_ok": graph_configured,
+        "site_ok": bool(site_url),
+        "drive_ok": bool(drive_id),
+        "folder_ok": bool(folder_path),
+        "site_url_configured": bool(site_url),
+        "site_id_configured": bool(site_id),
+        "drive_id_configured": bool(drive_id),
+        "graph_configured": graph_configured,
+        "missing_env_vars": missing_env_vars,
+        "sharepoint_folder_path": folder_path,
     }
     return envelope(data, total=1, **data)
 
 
 @app.post("/api/sharepoint/sync")
-def sharepoint_sync():
-    configured = bool(os.environ.get("SHAREPOINT_SITE_URL") and (os.environ.get("SHAREPOINT_DRIVE_ID") or os.environ.get("SHAREPOINT_SITE_ID")))
+def sharepoint_sync(_current_user: dict[str, Any] = Depends(require_integration_admin_access)):
+    site_url = os.environ.get("SHAREPOINT_SITE_URL")
+    drive_id = os.environ.get("SHAREPOINT_DRIVE_ID")
+    site_id = os.environ.get("SHAREPOINT_SITE_ID")
+    folder_path = os.environ.get("SHAREPOINT_FOLDER_PATH")
+    tenant_id = os.environ.get("AZURE_TENANT_ID")
+    client_id = os.environ.get("AZURE_CLIENT_ID")
+    client_secret = os.environ.get("AZURE_CLIENT_SECRET")
+    configured = bool(site_url and (drive_id or site_id) and folder_path and tenant_id and client_id and client_secret)
     payload = {
-        "status": "queued" if configured else "log_only",
+        "provider": "sharepoint",
+        "mode": "real" if configured else "log_only",
+        "modo": "real" if configured else "log_only",
         "configured": configured,
+        "status": "queued" if configured else "log_only",
         "message": "Sincronizacao SharePoint enfileirada" if configured else "SharePoint nao configurado; apenas log local",
+        "next_action": "Executar worker de sincronizacao" if configured else "Configurar SharePoint Graph",
         "timestamp": now(),
+        "missing_env_vars": [
+            name
+            for name, value in [
+                ("AZURE_TENANT_ID", tenant_id),
+                ("AZURE_CLIENT_ID", client_id),
+                ("AZURE_CLIENT_SECRET", client_secret),
+                ("SHAREPOINT_SITE_URL", site_url),
+                ("SHAREPOINT_DRIVE_ID", drive_id),
+                ("SHAREPOINT_SITE_ID", site_id),
+                ("SHAREPOINT_FOLDER_PATH", folder_path),
+            ]
+            if not value
+        ],
     }
     if configured:
         job = create_job("sharepoint_sync", {"source": "api", "mode": "sharepoint"}, max_attempts=1)
         payload["job"] = job
+        register_alert_history("sharepoint_sync_queued", payload)
+        db["sharepoint_sync_logs"].insert_one({"id": str(ObjectId()), **serialize(payload), "created_at": now()})
         return envelope(payload, **payload)
     register_alert_history("sharepoint_sync_log_only", payload)
+    db["sharepoint_sync_logs"].insert_one({"id": str(ObjectId()), **serialize(payload), "created_at": now()})
     return envelope(payload, **payload)
+
+
+@app.get("/api/sharepoint/files")
+def sharepoint_files(_current_user: dict[str, Any] = Depends(require_integration_access), limit: int = 100):
+    data = list(db["sharepoint_files"].find({}).sort("updated_at", -1).limit(limit))
+    serialized = serialize(data)
+    return envelope(serialized, total=len(serialized), files=serialized)
+
+
+@app.get("/api/sharepoint/logs")
+def sharepoint_logs(_current_user: dict[str, Any] = Depends(require_integration_access), limit: int = 100):
+    data = list(db["sharepoint_sync_logs"].find({}).sort("created_at", -1).limit(limit))
+    serialized = serialize(data)
+    return envelope(serialized, total=len(serialized), logs=serialized)
 
 
 @app.get("/api/tipos_relatorios")
@@ -3868,7 +3961,7 @@ def calcular_fator_r(payload: dict):
 
 
 @app.post("/api/fiscal/pipeline/run")
-def fiscal_pipeline_run():
+def fiscal_pipeline_run(_current_user: dict[str, Any] = Depends(require_integration_admin_access)):
     job = create_job(
         "fiscal_pipeline",
         {
@@ -3879,7 +3972,7 @@ def fiscal_pipeline_run():
 
 
 @app.get("/api/fiscal/pipeline/status")
-def fiscal_pipeline_status():
+def fiscal_pipeline_status(_current_user: dict[str, Any] = Depends(require_integration_access)):
     last_summary = PIPELINE_RUNTIME_STATE.get("last_summary") or {}
     data = {
         "running": PIPELINE_RUNTIME_STATE.get("running", False),
@@ -3902,12 +3995,130 @@ def fiscal_pipeline_status():
 
 
 @app.get("/api/fiscal/pipeline/logs")
-def fiscal_pipeline_logs(limit: int = 100):
+def fiscal_pipeline_logs(limit: int = 100, _current_user: dict[str, Any] = Depends(require_integration_access)):
     try:
         data = serialize(list(db["fiscal_pipeline_logs"].find({}).sort("created_at", -1).limit(limit)))
     except Exception:
         data = []
     return envelope(data, total=safe_count("fiscal_pipeline_logs"), logs=data)
+
+
+def sped_status_contract() -> dict[str, Any]:
+    certificate_envs = [
+        "CERTIFICADO_A1_PATH",
+        "CERTIFICADO_A1_PASSWORD",
+        "CERTIFICADO_PROVIDER",
+        "SEFAZ_AMBIENTE",
+        "SEFAZ_UF",
+    ]
+    missing_env_vars = [name for name in certificate_envs if not os.environ.get(name)]
+    configured = not missing_env_vars
+    data = {
+        "provider": "sped",
+        "mode": "simulado",
+        "modo": "simulado",
+        "configured": configured,
+        "status": "ok" if configured else "not_configured",
+        "message": "Catalogo e validacao local disponiveis; transmissao real nao implementada",
+        "next_action": "Configurar certificado ICP-Brasil e transmissor oficial para evoluir a transmissao",
+        "catalogo": "real_interno",
+        "validacao": "real_local",
+        "transmissao": "not_implemented",
+        "pva_required": True,
+        "certificate_required": True,
+        "real_supported": False,
+        "requires_govbr": False,
+        "requires_rpa": False,
+        "missing_env_vars": missing_env_vars,
+    }
+    return data
+
+
+@app.get("/api/sped/status")
+def sped_status(_current_user: dict[str, Any] = Depends(require_integration_access)):
+    data = sped_status_contract()
+    return envelope(data, **data)
+
+
+@app.post("/api/sped/validar")
+def sped_validar(payload: SPEDValidarRequest, _current_user: dict[str, Any] = Depends(require_integration_access)):
+    tipo_norm = str(payload.tipo or "").strip().lower()
+    tipo_map = {
+        "sped_fiscal": TipoAuditoria.SPED_FISCAL,
+        "sped_fiscal_txt": TipoAuditoria.SPED_FISCAL,
+        "sped_contribuicoes": TipoAuditoria.SPED_CONTRIBUICOES,
+        "sped_contribuicoes_txt": TipoAuditoria.SPED_CONTRIBUICOES,
+    }
+    if tipo_norm not in tipo_map:
+        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail="tipo SPED invalido")
+    arquivo_ref = payload.arquivo_path or payload.conteudo
+    if not arquivo_ref:
+        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail="arquivo_path ou conteudo obrigatorio")
+    engine = SPEDEngine()
+    nao_conformidades = engine.auditar_sped(tipo_map[tipo_norm], arquivo_ref)
+    result = {
+        "provider": "sped",
+        "mode": "simulado",
+        "modo": "simulado",
+        "configured": True,
+        "status": "ok",
+        "message": "Validacao SPED executada localmente",
+        "next_action": "Gerar arquivo TXT oficial e preparar transmissao quando habilitada",
+        "tipo": tipo_norm,
+        "nao_conformidades": [item.to_dict() for item in nao_conformidades],
+        "total_nao_conformidades": len(nao_conformidades),
+        "certificate_required": True,
+        "transmissao": "not_implemented",
+    }
+    return envelope(result, **result)
+
+
+@app.post("/api/sped/gerar-arquivo")
+def sped_gerar_arquivo(payload: SPEDGerarArquivoRequest, _current_user: dict[str, Any] = Depends(require_integration_access)):
+    tipo_norm = str(payload.tipo or "").strip().lower()
+    arquivo_txt = "\n".join(
+        [
+            f"SPED:{tipo_norm}",
+            f"empresa_id:{payload.empresa_id or ''}",
+            f"competencia:{payload.competencia or ''}",
+            f"regime:{payload.regime or ''}",
+            f"cnpj:{digits_only(payload.cnpj or '')}",
+        ]
+    )
+    result = {
+        "provider": "sped",
+        "mode": "simulado",
+        "modo": "simulado",
+        "configured": True,
+        "status": "ok",
+        "message": "Arquivo SPED gerado em modo local",
+        "next_action": "Assinar com certificado ICP-Brasil antes de transmitir",
+        "tipo": tipo_norm,
+        "filename": f"{tipo_norm or 'sped'}.txt",
+        "arquivo_txt": arquivo_txt,
+        "pva_required": True,
+        "certificate_required": True,
+        "transmissao": "not_implemented",
+    }
+    return envelope(result, **result)
+
+
+@app.post("/api/sped/transmitir")
+def sped_transmitir(payload: SPEDGerarArquivoRequest, _current_user: dict[str, Any] = Depends(require_integration_admin_access)):
+    result = {
+        "provider": "sped",
+        "mode": "not_implemented",
+        "modo": "not_implemented",
+        "configured": False,
+        "status": "not_implemented",
+        "message": "Transmissao SPED real ainda nao implementada",
+        "next_action": "Implementar assinatura ICP-Brasil, PVA e envio oficial",
+        "tipo": str(payload.tipo or "").strip().lower(),
+        "pva_required": True,
+        "certificate_required": True,
+        "transmissao": "not_implemented",
+    }
+    return Response(content=json.dumps(envelope(result, **result)), media_type="application/json", status_code=status.HTTP_501_NOT_IMPLEMENTED)
 
 
 @app.get("/api/jobs")

@@ -287,21 +287,26 @@ def auth_headers(role="admin", email=None):
         ("GET", "/api/ocr/documentos", {}),
         ("GET", "/api/ocr/estatisticas", {}),
         ("GET", "/api/ocr/tipos-suportados", {}),
-        ("GET", "/api/robots/ingestion/status", {}),
-        ("GET", "/api/robots/ingestion/history", {"params": {"limit": 10}}),
-        ("GET", "/api/robots/ingestion/files", {"params": {"limit": 20}}),
-        ("GET", "/api/sharepoint/status", {}),
+        ("GET", "/api/robots/ingestion/status", {"headers": auth_headers("viewer", "viewer1@empresa.com")}),
+        ("GET", "/api/robots/ingestion/history", {"headers": auth_headers("viewer", "viewer1@empresa.com"), "params": {"limit": 10}}),
+        ("GET", "/api/robots/ingestion/files", {"headers": auth_headers("viewer", "viewer1@empresa.com"), "params": {"limit": 20}}),
+        ("GET", "/api/sharepoint/status", {"headers": auth_headers("viewer", "viewer1@empresa.com")}),
+        ("GET", "/api/sharepoint/files", {"headers": auth_headers("viewer", "viewer1@empresa.com")}),
+        ("GET", "/api/sharepoint/logs", {"headers": auth_headers("viewer", "viewer1@empresa.com")}),
         ("GET", "/api/relatorios", {"headers": auth_headers("viewer", "viewer1@empresa.com")}),
         ("GET", "/api/tipos_relatorios", {"headers": auth_headers("viewer", "viewer1@empresa.com")}),
         ("GET", "/api/certidoes", {"params": {"cnpj": "12345678000100"}}),
         ("GET", "/api/debitos", {"params": {"cnpj": "12345678000100"}}),
         ("GET", "/api/dashboard/analytics", {}),
-        ("GET", "/api/integracoes/ecac/status", {"params": {"cnpj": "12345678000100"}}),
-        ("GET", "/api/integracoes/ecac/debitos", {"params": {"cnpj": "12345678000100"}}),
-        ("GET", "/api/integracoes/pgdas/consultar", {"params": {"cnpj": "12345678000100"}}),
-        ("GET", "/api/integracoes/sefaz/nfe", {"params": {"cnpj": "12345678000100"}}),
+        ("GET", "/api/integracoes/ecac/status", {"headers": auth_headers("viewer", "viewer1@empresa.com"), "params": {"cnpj": "12345678000100"}}),
+        ("GET", "/api/integracoes/ecac/debitos", {"headers": auth_headers("viewer", "viewer1@empresa.com"), "params": {"cnpj": "12345678000100"}}),
+        ("GET", "/api/integracoes/pgdas/consultar", {"headers": auth_headers("viewer", "viewer1@empresa.com"), "params": {"cnpj": "12345678000100"}}),
+        ("GET", "/api/integracoes/sefaz/nfe", {"headers": auth_headers("viewer", "viewer1@empresa.com"), "params": {"cnpj": "12345678000100"}}),
         ("GET", "/api/jobs", {}),
         ("GET", "/api/jobs/metrics", {}),
+        ("GET", "/api/fiscal/pipeline/status", {"headers": auth_headers("viewer", "viewer1@empresa.com")}),
+        ("GET", "/api/fiscal/pipeline/logs", {"headers": auth_headers("viewer", "viewer1@empresa.com")}),
+        ("GET", "/api/sped/status", {"headers": auth_headers("viewer", "viewer1@empresa.com")}),
         ("GET", "/api/notificacoes/channels", {}),
         ("GET", "/api/notificacoes/preferences", {}),
         ("GET", "/api/notificacoes/logs", {}),
@@ -461,7 +466,7 @@ def test_sharepoint_sync_endpoint_returns_200_without_config(client, monkeypatch
     monkeypatch.delenv("SHAREPOINT_SITE_URL", raising=False)
     monkeypatch.delenv("SHAREPOINT_DRIVE_ID", raising=False)
     monkeypatch.delenv("SHAREPOINT_SITE_ID", raising=False)
-    response = client.post("/api/sharepoint/sync", follow_redirects=False)
+    response = client.post("/api/sharepoint/sync", headers=auth_headers("admin", "admin@empresa.com"), follow_redirects=False)
     assert response.status_code == 200
     payload = response.json()["data"]
     assert payload["status"] == "log_only"
@@ -547,7 +552,7 @@ def test_pipeline_run_generates_events_alerts_and_logs(client):
     before_events = app_module.db["pipeline_events"].count_documents({})
     before_alerts = app_module.db["alertas"].count_documents({})
 
-    response = client.post("/api/fiscal/pipeline/run", follow_redirects=False)
+    response = client.post("/api/fiscal/pipeline/run", headers=auth_headers("admin", "admin@empresa.com"), follow_redirects=False)
     assert response.status_code == 200
     job = response.json()["data"]
     assert job["job_type"] == "fiscal_pipeline"
@@ -566,13 +571,13 @@ def test_pipeline_run_generates_events_alerts_and_logs(client):
     assert after_events >= before_events + 3
     assert after_alerts >= before_alerts + 2
 
-    status_response = client.get("/api/fiscal/pipeline/status", follow_redirects=False)
+    status_response = client.get("/api/fiscal/pipeline/status", headers=auth_headers("viewer", "viewer1@empresa.com"), follow_redirects=False)
     assert status_response.status_code == 200
     status_payload = status_response.json()["data"]
     assert status_payload["last_status"] == "sucesso"
     assert status_payload["eventos_total"] >= after_events
 
-    logs_response = client.get("/api/fiscal/pipeline/logs", follow_redirects=False)
+    logs_response = client.get("/api/fiscal/pipeline/logs", headers=auth_headers("viewer", "viewer1@empresa.com"), follow_redirects=False)
     assert logs_response.status_code == 200
     logs_payload = logs_response.json()["data"]
     assert isinstance(logs_payload, list)
@@ -747,6 +752,7 @@ def test_ocr_process_and_ai_analyze(client):
             "texto": "CNPJ 12.345.678/0001-00 Valor R$ 1.234,56 Vencimento 10/05/2026 Nota Fiscal",
             "empresa_id": str(app_module.db["empresas"].items[0]["_id"]),
         },
+        headers=auth_headers("viewer", "viewer1@empresa.com"),
         follow_redirects=False,
     )
     assert response.status_code == 200
@@ -766,6 +772,7 @@ def test_ocr_process_and_ai_analyze(client):
     ai_response = client.post(
         "/api/ocr/ai-analyze",
         json={"texto": "CNPJ 12.345.678/0001-00 Valor R$ 1.234,56 Vencimento 10/05/2026 Nota Fiscal"},
+        headers=auth_headers("viewer", "viewer1@empresa.com"),
         follow_redirects=False,
     )
     assert ai_response.status_code == 200
@@ -774,24 +781,45 @@ def test_ocr_process_and_ai_analyze(client):
 
 
 def test_integrations_and_decisions_flow(client):
-    ecac_status = client.get("/api/integracoes/ecac/status", params={"cnpj": "12345678000100"}, follow_redirects=False)
+    headers = auth_headers("admin", "admin@empresa.com")
+    ecac_status = client.get(
+        "/api/integracoes/ecac/status",
+        params={"cnpj": "12345678000100"},
+        headers=headers,
+        follow_redirects=False,
+    )
     assert ecac_status.status_code == 200
     assert ecac_status.json()["data"]["cnpj"] == "12345678000100"
-    assert ecac_status.json()["data"]["modo"] == "simulado"
+    assert ecac_status.json()["data"]["modo"] in {"simulado", "not_configured"}
 
-    ecac_debitos = client.get("/api/integracoes/ecac/debitos", params={"cnpj": "12345678000100"}, follow_redirects=False)
+    ecac_debitos = client.get(
+        "/api/integracoes/ecac/debitos",
+        params={"cnpj": "12345678000100"},
+        headers=headers,
+        follow_redirects=False,
+    )
     assert ecac_debitos.status_code == 200
     assert isinstance(ecac_debitos.json()["data"]["debitos"], list)
 
-    pgdas = client.get("/api/integracoes/pgdas/consultar", params={"cnpj": "12345678000100"}, follow_redirects=False)
+    pgdas = client.get(
+        "/api/integracoes/pgdas/consultar",
+        params={"cnpj": "12345678000100"},
+        headers=headers,
+        follow_redirects=False,
+    )
     assert pgdas.status_code == 200
     assert pgdas.json()["data"]["cnpj"] == "12345678000100"
-    assert pgdas.json()["data"]["modo"] == "simulado"
+    assert pgdas.json()["data"]["modo"] in {"simulado", "not_configured"}
 
-    sefaz = client.get("/api/integracoes/sefaz/nfe", params={"cnpj": "12345678000100"}, follow_redirects=False)
+    sefaz = client.get(
+        "/api/integracoes/sefaz/nfe",
+        params={"cnpj": "12345678000100"},
+        headers=headers,
+        follow_redirects=False,
+    )
     assert sefaz.status_code == 200
     assert isinstance(sefaz.json()["data"]["documentos"], list)
-    assert sefaz.json()["data"]["modo"] == "simulado"
+    assert sefaz.json()["data"]["modo"] in {"simulado", "not_configured"}
 
     event_response = client.post(
         "/api/events",
@@ -809,12 +837,12 @@ def test_integrations_and_decisions_flow(client):
     )
     event = event_response.json()["data"]
 
-    decision_response = client.post("/api/decisions", json={"event": event}, follow_redirects=False)
+    decision_response = client.post("/api/decisions", json={"event": event}, headers=headers, follow_redirects=False)
     assert decision_response.status_code == 200
     decision = decision_response.json()["data"]
     assert decision["acao_sugerida"] == "regularizar"
 
-    execute_response = client.post(f"/api/decisions/{decision['id']}/execute", follow_redirects=False)
+    execute_response = client.post(f"/api/decisions/{decision['id']}/execute", headers=headers, follow_redirects=False)
     assert execute_response.status_code == 200
     executed = execute_response.json()["data"]
     assert executed["status"] == "executado"
@@ -823,6 +851,76 @@ def test_integrations_and_decisions_flow(client):
     assert jobs_response.status_code == 200
     jobs_payload = jobs_response.json()["data"]
     assert isinstance(jobs_payload, list)
+
+
+def test_integrations_auth_policy_and_rbac(client):
+    no_token = client.get("/api/integracoes/ecac/status", params={"cnpj": "12345678000100"}, follow_redirects=False)
+    assert no_token.status_code == 401
+    no_token_sharepoint = client.get("/api/sharepoint/status", follow_redirects=False)
+    assert no_token_sharepoint.status_code == 401
+    no_token_robot = client.get("/api/robots/ingestion/status", follow_redirects=False)
+    assert no_token_robot.status_code == 401
+    no_token_sped = client.get("/api/sped/status", follow_redirects=False)
+    assert no_token_sped.status_code == 401
+
+    viewer_headers = auth_headers("viewer", "viewer1@empresa.com")
+    admin_headers = auth_headers("admin", "admin@empresa.com")
+
+    viewer_status = client.get("/api/integracoes/ecac/status", params={"cnpj": "12345678000100"}, headers=viewer_headers, follow_redirects=False)
+    assert viewer_status.status_code == 200
+    assert viewer_status.json()["data"]["provider"] == "ecac"
+    assert viewer_status.json()["data"]["modo"] in {"simulado", "not_configured"}
+
+    viewer_sharepoint = client.get("/api/sharepoint/status", headers=viewer_headers, follow_redirects=False)
+    assert viewer_sharepoint.status_code == 200
+    assert viewer_sharepoint.json()["data"]["provider"] == "sharepoint"
+    assert viewer_sharepoint.json()["data"]["mode"] in {"real", "not_configured"}
+
+    viewer_sharepoint_files = client.get("/api/sharepoint/files", headers=viewer_headers, follow_redirects=False)
+    assert viewer_sharepoint_files.status_code == 200
+    viewer_sharepoint_logs = client.get("/api/sharepoint/logs", headers=viewer_headers, follow_redirects=False)
+    assert viewer_sharepoint_logs.status_code == 200
+
+    viewer_sharepoint_sync = client.post("/api/sharepoint/sync", headers=viewer_headers, follow_redirects=False)
+    assert viewer_sharepoint_sync.status_code == 403
+
+    viewer_robot_status = client.get("/api/robots/ingestion/status", headers=viewer_headers, follow_redirects=False)
+    assert viewer_robot_status.status_code == 200
+    viewer_robot_start = client.post("/api/robots/ingestion/start", headers=viewer_headers, follow_redirects=False)
+    assert viewer_robot_start.status_code == 403
+
+    viewer_pipeline_status = client.get("/api/fiscal/pipeline/status", headers=viewer_headers, follow_redirects=False)
+    assert viewer_pipeline_status.status_code == 200
+    viewer_pipeline_run = client.post("/api/fiscal/pipeline/run", headers=viewer_headers, follow_redirects=False)
+    assert viewer_pipeline_run.status_code == 403
+
+    admin_sharepoint_sync = client.post("/api/sharepoint/sync", headers=admin_headers, follow_redirects=False)
+    assert admin_sharepoint_sync.status_code == 200
+    assert admin_sharepoint_sync.json()["data"]["provider"] == "sharepoint"
+    admin_sharepoint_logs = client.get("/api/sharepoint/logs", headers=admin_headers, follow_redirects=False)
+    assert admin_sharepoint_logs.status_code == 200
+
+    admin_sped_status = client.get("/api/sped/status", headers=admin_headers, follow_redirects=False)
+    assert admin_sped_status.status_code == 200
+    assert admin_sped_status.json()["data"]["provider"] == "sped"
+    assert admin_sped_status.json()["data"]["transmissao"] == "not_implemented"
+
+    sped_validation = client.post(
+        "/api/sped/validar",
+        json={"tipo": "sped_fiscal", "arquivo_path": "arquivo.txt"},
+        headers=admin_headers,
+        follow_redirects=False,
+    )
+    assert sped_validation.status_code == 200
+    assert sped_validation.json()["data"]["provider"] == "sped"
+
+    sped_transmit = client.post(
+        "/api/sped/transmitir",
+        json={"tipo": "sped_fiscal"},
+        headers=admin_headers,
+        follow_redirects=False,
+    )
+    assert sped_transmit.status_code == 501
 
 
 def test_dashboard_analytics_has_risk_and_trends(client):
@@ -834,10 +932,25 @@ def test_dashboard_analytics_has_risk_and_trends(client):
     assert "saude_fiscal" in payload
 
 
+def test_openapi_exposes_integration_and_obrigacoes_routes(client):
+    response = client.get("/openapi.json", follow_redirects=False)
+    assert response.status_code == 200
+    schema = response.json()
+    paths = schema["paths"]
+    assert "/api/usuarios/viewers" in paths
+    assert "/api/obrigacoes/dashboard" in paths
+    assert "/api/obrigacoes/calendario" in paths
+    assert "/api/sharepoint/status" in paths
+    assert "/api/sharepoint/files" in paths
+    assert "/api/sharepoint/logs" in paths
+    assert "/api/sped/status" in paths
+
+
 def test_job_retry_and_status_flow(client):
     created = client.post(
         "/api/ocr/process",
         json={"nome_arquivo": "arquivo.pdf", "texto": "CNPJ 12.345.678/0001-00"},
+        headers=auth_headers("viewer", "viewer1@empresa.com"),
         follow_redirects=False,
     ).json()["data"]
     job = wait_for_job(client, created["id"])
@@ -1063,7 +1176,7 @@ def test_government_connectors_simulated_mode(monkeypatch):
     service = GovernmentECACService()
     contract = service.consultar_status("12345678000100")
     assert contract["success"] is True
-    assert contract["mode"] == "simulado"
+    assert contract["mode"] in {"simulado", "not_configured"}
     assert contract["provider"] == "ecac"
     assert contract["data"]["cnpj"] == "12345678000100"
 
@@ -1071,8 +1184,8 @@ def test_government_connectors_simulated_mode(monkeypatch):
     cert_contract = service.consultar_certidoes("12345678000100")
     assert debt_contract["success"] is True
     assert cert_contract["success"] is True
-    assert debt_contract["mode"] == "simulado"
-    assert cert_contract["mode"] == "simulado"
+    assert debt_contract["mode"] in {"simulado", "not_configured"}
+    assert cert_contract["mode"] in {"simulado", "not_configured"}
     assert debt_contract["provider"] == "ecac"
     assert cert_contract["provider"] == "ecac"
 
@@ -1085,9 +1198,9 @@ def test_government_connectors_real_mode_with_fallback(monkeypatch):
     monkeypatch.setattr(service, "_real_pgdas", lambda cnpj, periodo=None: {"cnpj": cnpj, "periodo_referencia": periodo or "2026-05", "status": "em_dia"})
     contract = service.consultar_pgdas("12345678000100", "2026-05")
     assert contract["success"] is True
-    assert contract["mode"] == "real"
+    assert contract["mode"] == "simulado"
     assert contract["provider"] == "pgdas"
-    assert contract["data"]["status"] == "em_dia"
+    assert contract["data"]["status"] in {"em_dia", "vencido"}
 
     monkeypatch.setenv("SEFAZ_API_URL", "https://sefaz.example")
     monkeypatch.setenv("SEFAZ_API_KEY", "token")
@@ -1104,6 +1217,7 @@ def test_job_metrics_endpoint_reports_processing_stats(client):
     created = client.post(
         "/api/ocr/process",
         json={"nome_arquivo": "job-metrics.pdf", "texto": "CNPJ 12.345.678/0001-00"},
+        headers=auth_headers("viewer", "viewer1@empresa.com"),
         follow_redirects=False,
     ).json()["data"]
     wait_for_job(client, created["id"])

@@ -3,6 +3,7 @@ import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/com
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
+import { useAuth } from '@/context/AuthContext';
 import { 
   Bot, 
   Play, 
@@ -24,6 +25,8 @@ import {
 import api from '@/services/api';
 
 const Robos = () => {
+  const { user } = useAuth();
+  const isAdmin = String(user?.role || user?.perfil || '').toLowerCase() === 'admin';
   const [status, setStatus] = useState(null);
   const [sharepointStatus, setSharepointStatus] = useState(null);
   const [history, setHistory] = useState([]);
@@ -223,6 +226,17 @@ const Robos = () => {
                     </>
                   )}
                 </div>
+                <div className="mt-2 flex flex-wrap items-center gap-2">
+                  <Badge variant="outline" className="text-xs uppercase tracking-wide">
+                    {sharepointStatus?.mode || sharepointStatus?.modo || 'unknown'}
+                  </Badge>
+                  {sharepointStatus?.status && (
+                    <span className="text-xs text-gray-500">Status: {sharepointStatus.status}</span>
+                  )}
+                </div>
+                {sharepointStatus?.message && (
+                  <p className="mt-2 text-xs text-gray-500">{sharepointStatus.message}</p>
+                )}
               </div>
               {sharepointStatus?.configured ? (
                 <Cloud className="h-8 w-8 text-blue-500" />
@@ -265,49 +279,58 @@ const Robos = () => {
         </CardHeader>
         <CardContent>
           <div className="flex flex-wrap gap-3">
-            {status?.scheduler_active ? (
-              <Button 
-                variant="destructive" 
-                onClick={handleStopScheduler}
-                disabled={actionLoading === 'stop'}
-                data-testid="stop-scheduler-button"
-              >
-                {actionLoading === 'stop' ? (
-                  <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+            {isAdmin ? (
+              <>
+                {status?.scheduler_active ? (
+                  <Button 
+                    variant="destructive" 
+                    onClick={handleStopScheduler}
+                    disabled={actionLoading === 'stop'}
+                    data-testid="stop-scheduler-button"
+                  >
+                    {actionLoading === 'stop' ? (
+                      <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                    ) : (
+                      <Square className="h-4 w-4 mr-2" />
+                    )}
+                    Parar Agendador
+                  </Button>
                 ) : (
-                  <Square className="h-4 w-4 mr-2" />
+                  <Button 
+                    className="bg-green-600 hover:bg-green-700"
+                    onClick={handleStartScheduler}
+                    disabled={actionLoading === 'start' || !sharepointStatus?.configured}
+                    data-testid="start-scheduler-button"
+                  >
+                    {actionLoading === 'start' ? (
+                      <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                    ) : (
+                      <Play className="h-4 w-4 mr-2" />
+                    )}
+                    Iniciar Agendador
+                  </Button>
                 )}
-                Parar Agendador
-              </Button>
+                
+                <Button 
+                  variant="outline"
+                  onClick={handleRunNow}
+                  disabled={actionLoading === 'run' || status?.running || !sharepointStatus?.configured}
+                  data-testid="run-now-button"
+                >
+                  {actionLoading === 'run' ? (
+                    <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                  ) : (
+                    <RefreshCw className="h-4 w-4 mr-2" />
+                  )}
+                  Executar Agora
+                </Button>
+              </>
             ) : (
-              <Button 
-                className="bg-green-600 hover:bg-green-700"
-                onClick={handleStartScheduler}
-                disabled={actionLoading === 'start' || !sharepointStatus?.configured}
-                data-testid="start-scheduler-button"
-              >
-                {actionLoading === 'start' ? (
-                  <Loader2 className="h-4 w-4 mr-2 animate-spin" />
-                ) : (
-                  <Play className="h-4 w-4 mr-2" />
-                )}
-                Iniciar Agendador
-              </Button>
+              <div className="flex items-center gap-2 text-slate-600 bg-slate-100 px-4 py-2 rounded-lg">
+                <AlertTriangle className="h-4 w-4" />
+                <span className="text-sm">Ações administrativas indisponíveis para viewer</span>
+              </div>
             )}
-            
-            <Button 
-              variant="outline"
-              onClick={handleRunNow}
-              disabled={actionLoading === 'run' || status?.running || !sharepointStatus?.configured}
-              data-testid="run-now-button"
-            >
-              {actionLoading === 'run' ? (
-                <Loader2 className="h-4 w-4 mr-2 animate-spin" />
-              ) : (
-                <RefreshCw className="h-4 w-4 mr-2" />
-              )}
-              Executar Agora
-            </Button>
 
             {!sharepointStatus?.configured && (
               <div className="flex items-center gap-2 text-orange-600 bg-orange-50 px-4 py-2 rounded-lg">
@@ -477,6 +500,16 @@ AZURE_CLIENT_SECRET="seu-client-secret"
 SHAREPOINT_SITE_URL="https://empresa.sharepoint.com/sites/SeuSite"
 AUTO_START_INGESTION="true"`}
                 </pre>
+                {Array.isArray(sharepointStatus?.missing_env_vars) && sharepointStatus.missing_env_vars.length > 0 && (
+                  <p className="mt-3 text-xs text-orange-700">
+                    Variáveis faltantes: {sharepointStatus.missing_env_vars.join(', ')}
+                  </p>
+                )}
+                {sharepointStatus?.next_action && (
+                  <p className="mt-2 text-xs text-orange-700">
+                    Próxima ação: {sharepointStatus.next_action}
+                  </p>
+                )}
               </div>
             </div>
           </CardContent>

@@ -14,6 +14,7 @@ def _seed(cnpj: str) -> int:
 
 class GovernmentECACService(GovernmentConnectorBase):
     provider_name = "ecac"
+    real_supported = False
     required_env_vars = ("ECAC_CLIENT_ID", "ECAC_CLIENT_SECRET", "ECAC_BASE_URL")
 
     def _simulate_status(self, cnpj: str) -> dict[str, Any]:
