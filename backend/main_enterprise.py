@@ -57,6 +57,7 @@ app.add_middleware(
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
+    expose_headers=["Content-Disposition"],
 )
 
 MONGO_URL = os.environ.get("MONGO_URL") or os.environ.get("MONGO_URI") or "mongodb://localhost:27017/consultslt_db"
@@ -1771,6 +1772,18 @@ def require_admin(authorization: str | None) -> dict[str, Any]:
     return current_user
 
 
+def require_module_access(module: str, authorization: str | None) -> dict[str, Any]:
+    current_user = decode_current_user(authorization)
+    role = normalize_role(current_user.get("role") or current_user.get("perfil"))
+    if not module_allowed_for_role(role, module):
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Acesso negado para este modulo")
+    return current_user
+
+
+def require_relatorios_access(authorization: str = Depends(require_bearer_authorization)) -> dict[str, Any]:
+    return require_module_access("relatorios", authorization)
+
+
 class UsuarioCreateRequest(BaseModel):
     email: str = Field(..., min_length=3)
     nome: str | None = None
@@ -2929,17 +2942,18 @@ def sharepoint_sync():
 
 
 @app.get("/api/tipos_relatorios")
-def tipos_relatorios():
+def tipos_relatorios(_current_user: dict[str, Any] = Depends(require_relatorios_access)):
     return collection_response("tipos_relatorios", "tipos_relatorios")
 
 
 @app.get("/api/relatorios")
-def relatorios():
+def relatorios(_current_user: dict[str, Any] = Depends(require_relatorios_access)):
     return collection_response("relatorios", "relatorios")
 
 
 @app.get("/api/relatorios/export/pdf")
 def export_relatorios_pdf(
+    _current_user: dict[str, Any] = Depends(require_relatorios_access),
     empresa_id: str | None = None,
     status: str | None = None,
     inicio: str | None = None,
@@ -3013,6 +3027,7 @@ def export_relatorios_pdf(
 
 @app.get("/api/relatorios/export/excel")
 def export_relatorios_excel(
+    _current_user: dict[str, Any] = Depends(require_relatorios_access),
     empresa_id: str | None = None,
     status: str | None = None,
     inicio: str | None = None,

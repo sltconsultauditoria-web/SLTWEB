@@ -285,8 +285,8 @@ def auth_headers(role="admin", email=None):
         ("GET", "/api/robots/ingestion/history", {"params": {"limit": 10}}),
         ("GET", "/api/robots/ingestion/files", {"params": {"limit": 20}}),
         ("GET", "/api/sharepoint/status", {}),
-        ("GET", "/api/relatorios", {}),
-        ("GET", "/api/tipos_relatorios", {}),
+        ("GET", "/api/relatorios", {"headers": auth_headers("viewer", "viewer1@empresa.com")}),
+        ("GET", "/api/tipos_relatorios", {"headers": auth_headers("viewer", "viewer1@empresa.com")}),
         ("GET", "/api/certidoes", {"params": {"cnpj": "12345678000100"}}),
         ("GET", "/api/debitos", {"params": {"cnpj": "12345678000100"}}),
         ("GET", "/api/dashboard/analytics", {}),
@@ -532,20 +532,76 @@ def test_export_relatorios_pdf_and_excel(client):
     pdf_response = client.get(
         "/api/relatorios/export/pdf",
         params={"empresa_id": empresa_id},
+        headers=auth_headers("viewer", "viewer1@empresa.com"),
         follow_redirects=False,
     )
     assert pdf_response.status_code == 200
     assert "application/pdf" in pdf_response.headers["content-type"]
+    assert 'attachment; filename="' in pdf_response.headers["content-disposition"]
     assert pdf_response.content.startswith(b"%PDF")
 
     excel_response = client.get(
         "/api/relatorios/export/excel",
         params={"empresa_id": empresa_id},
+        headers=auth_headers("viewer", "viewer1@empresa.com"),
         follow_redirects=False,
     )
     assert excel_response.status_code == 200
     assert "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" in excel_response.headers["content-type"]
+    assert 'attachment; filename="' in excel_response.headers["content-disposition"]
     assert excel_response.content[:2] == b"PK"
+
+
+def test_relatorios_endpoints_require_bearer_and_allow_viewer_admin(client):
+    protected_paths = [
+        "/api/relatorios",
+        "/api/tipos_relatorios",
+        "/api/relatorios/export/pdf",
+        "/api/relatorios/export/excel",
+    ]
+    for path in protected_paths:
+        missing = client.get(path, follow_redirects=False)
+        assert missing.status_code == 401
+
+        invalid = client.get(path, headers={"Authorization": "Bearer invalid-token"}, follow_redirects=False)
+        assert invalid.status_code == 401
+
+        viewer = client.get(path, headers=auth_headers("viewer", "viewer1@empresa.com"), follow_redirects=False)
+        assert viewer.status_code == 200
+
+        admin = client.get(path, headers=auth_headers("admin", "admin@empresa.com"), follow_redirects=False)
+        assert admin.status_code == 200
+
+
+def test_relatorios_openapi_and_cors_download_headers(client):
+    openapi = client.get("/openapi.json", follow_redirects=False).json()
+    assert openapi["paths"]["/api/relatorios"]["get"]["security"] == [{"HTTPBearer": []}]
+    assert openapi["paths"]["/api/tipos_relatorios"]["get"]["security"] == [{"HTTPBearer": []}]
+    assert openapi["paths"]["/api/relatorios/export/pdf"]["get"]["security"] == [{"HTTPBearer": []}]
+    assert openapi["paths"]["/api/relatorios/export/excel"]["get"]["security"] == [{"HTTPBearer": []}]
+
+    response = client.options(
+        "/api/relatorios/export/pdf",
+        headers={
+            "Origin": "https://sltconsultauditoria-web.github.io",
+            "Access-Control-Request-Method": "GET",
+            "Access-Control-Request-Headers": "authorization,content-type",
+        },
+        follow_redirects=False,
+    )
+    assert response.status_code == 200
+    assert response.headers["access-control-allow-origin"] == "https://sltconsultauditoria-web.github.io"
+
+    download = client.get(
+        "/api/relatorios/export/pdf",
+        headers={
+            **auth_headers("viewer", "viewer1@empresa.com"),
+            "Origin": "https://sltconsultauditoria-web.github.io",
+        },
+        follow_redirects=False,
+    )
+    assert download.status_code == 200
+    assert "Content-Disposition" in download.headers["access-control-expose-headers"]
 
 
 def test_ocr_process_and_ai_analyze(client):

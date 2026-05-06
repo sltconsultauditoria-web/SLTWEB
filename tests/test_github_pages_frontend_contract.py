@@ -134,6 +134,24 @@ def test_admin_viewer_management_frontend_contract():
     assert '<Navigate to="/dashboard" replace />' in page
 
 
+def test_relatorios_frontend_uses_api_client_and_blob_exports():
+    relatorios = read_text(FRONTEND / "src" / "pages" / "Relatorios.jsx")
+    relatorios_persistente = read_text(FRONTEND / "src" / "pages" / "RelatoriosPersistente.jsx")
+
+    assert "api.get('/tipos_relatorios')" in relatorios
+    assert "api.get('/relatorios')" in relatorios
+    assert "api.get(`/relatorios/export/${format}`" in relatorios
+    assert "responseType: 'blob'" in relatorios
+    assert "window.URL.createObjectURL" in relatorios
+    assert "window.open" not in relatorios
+    assert "/api/relatorios" not in relatorios
+    assert "/api/api" not in relatorios
+    assert "github.io/api" not in relatorios
+    assert "window.location.origin" not in relatorios
+    assert "window.open" not in relatorios_persistente
+    assert "api.get('/relatorios/export/pdf'" in relatorios_persistente
+
+
 def test_404_fallback_source_exists():
     fallback = FRONTEND / "public" / "404.html"
     assert fallback.exists()

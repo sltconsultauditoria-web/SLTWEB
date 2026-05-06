@@ -1,6 +1,5 @@
 import { useState, useEffect } from 'react';
 import api from '@/services/api';
-import { resolveApiBaseUrl } from '@/lib/apiClient';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { FileBarChart, Download } from 'lucide-react';
@@ -28,9 +27,17 @@ const Relatorios = () => {
     }
   };
 
-  const handleDownload = (relatorioId) => {
-    const baseUrl = resolveApiBaseUrl();
-    window.open(`${baseUrl}/relatorios/${relatorioId}/download`, '_blank');
+  const handleDownload = async () => {
+    const response = await api.get('/relatorios/export/pdf', { responseType: 'blob' });
+    const blob = new Blob([response.data], { type: 'application/pdf' });
+    const url = window.URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = 'relatorios_sltweb.pdf';
+    document.body.appendChild(link);
+    link.click();
+    link.remove();
+    window.URL.revokeObjectURL(url);
   };
 
   useEffect(() => {
