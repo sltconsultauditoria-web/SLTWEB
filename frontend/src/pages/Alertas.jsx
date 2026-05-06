@@ -1,12 +1,12 @@
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
-import { 
-  Bell, 
-  AlertTriangle, 
-  CheckCircle, 
-  Clock, 
-  Check
+import {
+  Bell,
+  AlertTriangle,
+  CheckCircle,
+  Clock,
+  Check,
 } from 'lucide-react';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import {
@@ -15,40 +15,36 @@ import {
   isUnreadAlert,
 } from '@/lib/alertas';
 import { useNotifications } from '@/hooks/useNotifications';
+import PageHeader from '@/components/ui/page-header';
+import KPICard from '@/components/ui/kpi-card';
+import EmptyState from '@/components/ui/empty-state';
+import StatusBadge from '@/components/ui/status-badge';
 
 const Alertas = () => {
   const { alertas, markAlertAsRead, markAlertAsResolved } = useNotifications();
 
   const getPrioridadeConfig = (prioridade) => {
     const configs = {
-      'critica': { color: 'bg-red-500', textColor: 'text-red-700', bgColor: 'bg-red-50', borderColor: 'border-red-200', icon: AlertTriangle, label: 'Crítica' },
-      'alta': { color: 'bg-orange-500', textColor: 'text-orange-700', bgColor: 'bg-orange-50', borderColor: 'border-orange-200', icon: AlertTriangle, label: 'Alta' },
-      'normal': { color: 'bg-yellow-500', textColor: 'text-yellow-700', bgColor: 'bg-yellow-50', borderColor: 'border-yellow-200', icon: Clock, label: 'Normal' },
-      'baixa': { color: 'bg-green-500', textColor: 'text-green-700', bgColor: 'bg-green-50', borderColor: 'border-green-200', icon: CheckCircle, label: 'Baixa' },
+      critica: { color: 'bg-red-500', textColor: 'text-red-700', bgColor: 'bg-red-50', borderColor: 'border-red-200', icon: AlertTriangle, label: 'Crítica' },
+      alta: { color: 'bg-orange-500', textColor: 'text-orange-700', bgColor: 'bg-orange-50', borderColor: 'border-orange-200', icon: AlertTriangle, label: 'Alta' },
+      normal: { color: 'bg-yellow-500', textColor: 'text-yellow-700', bgColor: 'bg-yellow-50', borderColor: 'border-yellow-200', icon: Clock, label: 'Normal' },
+      baixa: { color: 'bg-green-500', textColor: 'text-green-700', bgColor: 'bg-green-50', borderColor: 'border-green-200', icon: CheckCircle, label: 'Baixa' },
     };
-    return configs[prioridade] || configs['normal'];
+    return configs[prioridade] || configs.normal;
   };
 
   const getTipoLabel = (tipo) => {
     const labels = {
-      'vencimento': '📅 Vencimento',
-      'fiscal': '📊 Fiscal',
-      'erro_processamento': '⚠️ Erro',
-      'sistema': '💻 Sistema'
+      vencimento: 'Vencimento',
+      fiscal: 'Fiscal',
+      erro_processamento: 'Erro',
+      sistema: 'Sistema',
     };
     return labels[tipo] || tipo;
   };
 
-  const marcarComoLido = (id) => {
-    markAlertAsRead(id);
-  };
-
-  const marcarComoResolvido = (id) => {
-    markAlertAsResolved(id);
-  };
-
   const alertasNaoLidos = alertas.filter(isUnreadAlert);
-  const alertasPendentes = alertas.filter(a => !isResolvedAlert(a));
+  const alertasPendentes = alertas.filter((a) => !isResolvedAlert(a));
   const alertasResolvidos = alertas.filter(isResolvedAlert);
   const alertasCriticos = countCriticalAlertas(alertas);
 
@@ -57,47 +53,40 @@ const Alertas = () => {
     const Icon = config.icon;
 
     return (
-      <div 
-        className={`p-4 rounded-lg border ${config.borderColor} ${config.bgColor} ${!alerta.lido ? 'ring-2 ring-blue-300' : ''}`}
+      <div
+        className={`rounded-2xl border p-4 shadow-sm ${config.borderColor} ${config.bgColor} ${!alerta.lido ? 'ring-2 ring-blue-300' : ''}`}
         data-testid={`alerta-${alerta.id}`}
       >
-        <div className="flex items-start justify-between">
+        <div className="flex items-start justify-between gap-4">
           <div className="flex items-start gap-3">
-            <div className={`p-2 rounded-full ${config.color}`}>
+            <div className={`rounded-full p-2 ${config.color}`}>
               <Icon className="h-4 w-4 text-white" />
             </div>
-            <div className="flex-1">
-              <div className="flex items-center gap-2 mb-1">
+            <div className="min-w-0">
+              <div className="mb-1 flex flex-wrap items-center gap-2">
                 <h3 className={`font-semibold ${config.textColor}`}>{alerta.titulo}</h3>
-                {!alerta.lido && (
-                  <Badge variant="secondary" className="bg-blue-500 text-white text-xs">Novo</Badge>
-                )}
+                {!alerta.lido && <StatusBadge status="processing" label="Novo" />}
               </div>
-              <p className="text-sm text-gray-600 mb-2">{alerta.descricao}</p>
-              <div className="flex items-center gap-4 text-xs text-gray-500">
+              <p className="mb-2 text-sm text-slate-600">{alerta.descricao}</p>
+              <div className="flex flex-wrap items-center gap-2 text-xs text-slate-500">
                 {alerta.empresa && <span className="font-medium">{alerta.empresa}</span>}
-                <span>{getTipoLabel(alerta.tipo)}</span>
+                <Badge variant="outline">{getTipoLabel(alerta.tipo)}</Badge>
                 <span>{alerta.tempo}</span>
               </div>
             </div>
           </div>
           <div className="flex items-center gap-2">
             {!alerta.lido && (
-              <Button 
-                variant="ghost" 
-                size="sm"
-                onClick={() => marcarComoLido(alerta.id)}
-                title="Marcar como lido"
-              >
+              <Button variant="ghost" size="sm" onClick={() => markAlertAsRead(alerta.id)} title="Marcar como lido">
                 <Check className="h-4 w-4" />
               </Button>
             )}
             {!alerta.resolvido && (
-              <Button 
-                variant="outline" 
+              <Button
+                variant="outline"
                 size="sm"
-                onClick={() => marcarComoResolvido(alerta.id)}
-                className="text-green-600 border-green-300 hover:bg-green-50"
+                onClick={() => markAlertAsResolved(alerta.id)}
+                className="border-emerald-300 text-emerald-700 hover:bg-emerald-50"
               >
                 Resolver
               </Button>
@@ -110,55 +99,16 @@ const Alertas = () => {
 
   return (
     <div className="space-y-6" data-testid="alertas-page">
-      <div className="flex items-center justify-between">
-        <div>
-          <h1 className="text-2xl font-bold text-gray-900">Alertas</h1>
-          <p className="text-gray-500">Central de notificações e alertas do sistema</p>
-        </div>
+      <PageHeader title="Alertas" description="Central de notificacoes e alertas do sistema." />
+
+      <div className="grid grid-cols-1 gap-4 md:grid-cols-4">
+        <KPICard title="Críticos" value={alertasCriticos} icon={AlertTriangle} tone="rose" />
+        <KPICard title="Não lidos" value={alertasNaoLidos.length} icon={Bell} tone="blue" />
+        <KPICard title="Pendentes" value={alertasPendentes.length} icon={Clock} tone="amber" />
+        <KPICard title="Resolvidos" value={alertasResolvidos.length} icon={CheckCircle} tone="emerald" />
       </div>
 
-      {/* Stats */}
-      <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
-        <Card className="bg-red-50 border-red-200">
-          <CardContent className="p-4 flex items-center justify-between">
-            <div>
-              <p className="text-sm text-red-600">Críticos</p>
-              <p className="text-2xl font-bold text-red-700">{alertasCriticos}</p>
-            </div>
-            <AlertTriangle className="h-8 w-8 text-red-500" />
-          </CardContent>
-        </Card>
-        <Card className="bg-blue-50 border-blue-200">
-          <CardContent className="p-4 flex items-center justify-between">
-            <div>
-              <p className="text-sm text-blue-600">Não Lidos</p>
-              <p className="text-2xl font-bold text-blue-700">{alertasNaoLidos.length}</p>
-            </div>
-            <Bell className="h-8 w-8 text-blue-500" />
-          </CardContent>
-        </Card>
-        <Card className="bg-yellow-50 border-yellow-200">
-          <CardContent className="p-4 flex items-center justify-between">
-            <div>
-              <p className="text-sm text-yellow-600">Pendentes</p>
-              <p className="text-2xl font-bold text-yellow-700">{alertasPendentes.length}</p>
-            </div>
-            <Clock className="h-8 w-8 text-yellow-500" />
-          </CardContent>
-        </Card>
-        <Card className="bg-green-50 border-green-200">
-          <CardContent className="p-4 flex items-center justify-between">
-            <div>
-              <p className="text-sm text-green-600">Resolvidos</p>
-              <p className="text-2xl font-bold text-green-700">{alertasResolvidos.length}</p>
-            </div>
-            <CheckCircle className="h-8 w-8 text-green-500" />
-          </CardContent>
-        </Card>
-      </div>
-
-      {/* Alertas List */}
-      <Card>
+      <Card className="border-slate-200 shadow-sm">
         <CardHeader>
           <CardTitle className="flex items-center gap-2">
             <Bell className="h-5 w-5" />
@@ -167,51 +117,36 @@ const Alertas = () => {
         </CardHeader>
         <CardContent>
           <Tabs defaultValue="pendentes">
-            <TabsList className="mb-4">
+            <TabsList className="mb-4 flex flex-wrap">
               <TabsTrigger value="pendentes">Pendentes ({alertasPendentes.length})</TabsTrigger>
               <TabsTrigger value="nao-lidos">Não Lidos ({alertasNaoLidos.length})</TabsTrigger>
               <TabsTrigger value="resolvidos">Resolvidos ({alertasResolvidos.length})</TabsTrigger>
               <TabsTrigger value="todos">Todos ({alertas.length})</TabsTrigger>
             </TabsList>
-            
+
             <TabsContent value="pendentes" className="space-y-3">
-              {alertasPendentes.map(alerta => (
+              {alertasPendentes.map((alerta) => (
                 <AlertaCard key={alerta.id} alerta={alerta} />
               ))}
-              {alertasPendentes.length === 0 && (
-                <div className="text-center py-8 text-gray-500">
-                  <CheckCircle className="h-12 w-12 mx-auto mb-4 text-green-300" />
-                  <p>Nenhum alerta pendente!</p>
-                </div>
-              )}
+              {alertasPendentes.length === 0 && <EmptyState title="Nenhum alerta pendente!" icon={CheckCircle} />}
             </TabsContent>
 
             <TabsContent value="nao-lidos" className="space-y-3">
-              {alertasNaoLidos.map(alerta => (
+              {alertasNaoLidos.map((alerta) => (
                 <AlertaCard key={alerta.id} alerta={alerta} />
               ))}
-              {alertasNaoLidos.length === 0 && (
-                <div className="text-center py-8 text-gray-500">
-                  <CheckCircle className="h-12 w-12 mx-auto mb-4 text-green-300" />
-                  <p>Todos os alertas foram lidos!</p>
-                </div>
-              )}
+              {alertasNaoLidos.length === 0 && <EmptyState title="Todos os alertas foram lidos!" icon={CheckCircle} />}
             </TabsContent>
 
             <TabsContent value="resolvidos" className="space-y-3">
-              {alertasResolvidos.map(alerta => (
+              {alertasResolvidos.map((alerta) => (
                 <AlertaCard key={alerta.id} alerta={alerta} />
               ))}
-              {alertasResolvidos.length === 0 && (
-                <div className="text-center py-8 text-gray-500">
-                  <Clock className="h-12 w-12 mx-auto mb-4 text-gray-300" />
-                  <p>Nenhum alerta resolvido ainda</p>
-                </div>
-              )}
+              {alertasResolvidos.length === 0 && <EmptyState title="Nenhum alerta resolvido ainda" icon={Clock} />}
             </TabsContent>
 
             <TabsContent value="todos" className="space-y-3">
-              {alertas.map(alerta => (
+              {alertas.map((alerta) => (
                 <AlertaCard key={alerta.id} alerta={alerta} />
               ))}
             </TabsContent>

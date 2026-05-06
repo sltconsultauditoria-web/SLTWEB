@@ -25,6 +25,10 @@ import {
 import { useAuth } from '@/context/AuthContext';
 import { isAdminUser, userRole } from '@/lib/rbac';
 import { cn } from '@/lib/utils';
+import PageHeader from '@/components/ui/page-header';
+import KPICard from '@/components/ui/kpi-card';
+import LoadingState from '@/components/ui/loading-state';
+import StatusBadge from '@/components/ui/status-badge';
 
 const emptyForm = {
   nome: '',
@@ -194,22 +198,20 @@ const ConfiguracoesUsuariosViewer = () => {
 
   return (
     <div className="space-y-6" data-testid="usuarios-viewer-page">
-      <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
-        <div>
-          <h1 className="text-2xl font-bold text-gray-900">Gestao de Usuarios Viewer</h1>
-          <p className="text-gray-500">Controle contas de visualizacao sem permissao administrativa</p>
-        </div>
-        <div className="flex gap-2">
-          <Button variant="outline" onClick={loadViewers} disabled={loading}>
+      <PageHeader
+        title="Gestao de Usuarios Viewer"
+        description="Controle contas de visualizacao sem permissao administrativa."
+        actions={[
+          <Button key="refresh" variant="outline" onClick={loadViewers} disabled={loading}>
             <RefreshCw className={cn('h-4 w-4 mr-2', loading && 'animate-spin')} />
             Atualizar
-          </Button>
-          <Button onClick={openCreateModal} className="bg-blue-900 hover:bg-blue-800" data-testid="btn-criar-viewer">
+          </Button>,
+          <Button key="create" onClick={openCreateModal} className="bg-blue-900 hover:bg-blue-800" data-testid="btn-criar-viewer">
             <Plus className="h-4 w-4 mr-2" />
             Criar Viewer
-          </Button>
-        </div>
-      </div>
+          </Button>,
+        ]}
+      />
 
       {feedback && (
         <div
@@ -226,31 +228,9 @@ const ConfiguracoesUsuariosViewer = () => {
       )}
 
       <div className="grid grid-cols-1 gap-4 md:grid-cols-3">
-        <Card>
-          <CardContent className="p-5">
-            <div className="flex items-center justify-between">
-              <div>
-                <p className="text-sm text-gray-500">Viewers ativos</p>
-                <p className="text-3xl font-bold">{viewers.filter((item) => item.ativo !== false).length}</p>
-              </div>
-              <UserRound className="h-9 w-9 text-blue-600" />
-            </div>
-          </CardContent>
-        </Card>
-        <Card>
-          <CardContent className="p-5">
-            <p className="text-sm text-gray-500">Total listado</p>
-            <p className="text-3xl font-bold">{viewers.length}</p>
-          </CardContent>
-        </Card>
-        <Card>
-          <CardContent className="p-5">
-            <p className="text-sm text-gray-500">Permissao fixa</p>
-            <div className="mt-2">
-              <RoleBadge role="viewer" />
-            </div>
-          </CardContent>
-        </Card>
+        <KPICard title="Viewers ativos" value={viewers.filter((item) => item.ativo !== false).length} icon={UserRound} tone="blue" />
+        <KPICard title="Total listado" value={viewers.length} icon={UserRound} tone="slate" />
+        <KPICard title="Permissao fixa" value="VIEWER" icon={UserRound} tone="emerald" />
       </div>
 
       <Card>
@@ -273,10 +253,7 @@ const ConfiguracoesUsuariosViewer = () => {
         </CardHeader>
         <CardContent>
           {loading ? (
-            <div className="flex h-48 items-center justify-center text-gray-500">
-              <Loader2 className="h-5 w-5 mr-2 animate-spin" />
-              Carregando viewers
-            </div>
+            <LoadingState title="Carregando viewers" description="Buscando contas com perfil viewer." />
           ) : (
             <Table>
               <TableHeader>
@@ -294,7 +271,7 @@ const ConfiguracoesUsuariosViewer = () => {
                   <TableRow key={viewer.id || viewer.email}>
                     <TableCell className="font-medium">{viewer.nome || viewer.name || '-'}</TableCell>
                     <TableCell>{viewer.email}</TableCell>
-                    <TableCell><RoleBadge role={viewer.role || viewer.perfil} /></TableCell>
+                    <TableCell><StatusBadge status={userRole(viewer)} label={(viewer.role || viewer.perfil || 'viewer').toUpperCase()} /></TableCell>
                     <TableCell>
                       <Badge variant={viewer.ativo === false ? 'destructive' : 'outline'}>
                         {viewer.ativo === false ? 'Inativo' : 'Ativo'}

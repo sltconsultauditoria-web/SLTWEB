@@ -1,10 +1,15 @@
 import { useEffect, useState } from 'react';
 import { api } from '@/context/AuthContext';
-import { AlertCircle, Download, FileBarChart, FileSpreadsheet, Loader2, RefreshCw } from 'lucide-react';
+import { Download, FileBarChart, FileSpreadsheet, Loader2, RefreshCw } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { cn } from '@/lib/utils';
+import PageHeader from '@/components/ui/page-header';
+import KPICard from '@/components/ui/kpi-card';
+import LoadingState from '@/components/ui/loading-state';
+import ErrorState from '@/components/ui/error-state';
+import EmptyState from '@/components/ui/empty-state';
 
 const normalizeList = (payload, key) => {
   if (Array.isArray(payload)) return payload;
@@ -97,33 +102,26 @@ const Relatorios = () => {
 
   return (
     <div className="space-y-6" data-testid="relatorios-page">
-      <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
-        <div>
-          <h1 className="text-2xl font-bold text-gray-900">Relatorios</h1>
-          <p className="text-gray-500">Gere e exporte relatorios do sistema</p>
-        </div>
-        <div className="flex flex-wrap gap-2">
-          <Button variant="outline" onClick={carregarRelatorios} disabled={loading}>
+      <PageHeader
+        title="Relatorios"
+        description="Gere e exporte relatorios do sistema."
+        actions={[
+          <Button key="refresh" variant="outline" onClick={carregarRelatorios} disabled={loading}>
             <RefreshCw className={cn('h-4 w-4 mr-2', loading && 'animate-spin')} />
             Atualizar
-          </Button>
-          <Button variant="outline" onClick={() => handleExport('pdf')} disabled={Boolean(exporting)}>
+          </Button>,
+          <Button key="pdf" variant="outline" onClick={() => handleExport('pdf')} disabled={Boolean(exporting)}>
             {exporting === 'pdf' ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : <Download className="h-4 w-4 mr-2" />}
             PDF
-          </Button>
-          <Button variant="outline" onClick={() => handleExport('excel')} disabled={Boolean(exporting)}>
+          </Button>,
+          <Button key="excel" variant="outline" onClick={() => handleExport('excel')} disabled={Boolean(exporting)}>
             {exporting === 'excel' ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : <FileSpreadsheet className="h-4 w-4 mr-2" />}
             Excel
-          </Button>
-        </div>
-      </div>
+          </Button>,
+        ]}
+      />
 
-      {error && (
-        <div className="flex items-center gap-2 rounded-md border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
-          <AlertCircle className="h-4 w-4" />
-          {error}
-        </div>
-      )}
+      {error && <ErrorState title="Nao foi possivel carregar relatorios" description={error} onRetry={carregarRelatorios} />}
       {success && (
         <div className="rounded-md border border-green-200 bg-green-50 px-4 py-3 text-sm text-green-700">
           {success}
@@ -131,49 +129,22 @@ const Relatorios = () => {
       )}
 
       <div className="grid grid-cols-1 gap-4 md:grid-cols-3">
-        <Card>
-          <CardContent className="p-5">
-            <p className="text-sm text-gray-500">Tipos disponiveis</p>
-            <p className="text-3xl font-bold">{relatorios.length}</p>
-          </CardContent>
-        </Card>
-        <Card>
-          <CardContent className="p-5">
-            <p className="text-sm text-gray-500">Gerados recentemente</p>
-            <p className="text-3xl font-bold">{relatoriosRecentes.length}</p>
-          </CardContent>
-        </Card>
-        <Card>
-          <CardContent className="p-5">
-            <p className="text-sm text-gray-500">Exportacoes</p>
-            <div className="mt-2 flex gap-2">
-              <Badge>PDF</Badge>
-              <Badge variant="outline">XLSX</Badge>
-            </div>
-          </CardContent>
-        </Card>
+        <KPICard title="Tipos disponiveis" value={relatorios.length} tone="blue" />
+        <KPICard title="Gerados recentemente" value={relatoriosRecentes.length} tone="emerald" />
+        <KPICard title="Exportacoes" value="2" tone="violet" subtitle="PDF e XLSX disponíveis" />
       </div>
 
       <div className="grid grid-cols-1 gap-4 md:grid-cols-2 lg:grid-cols-3">
         {loading ? (
-          <Card className="md:col-span-2 lg:col-span-3">
-            <CardContent className="flex h-40 items-center justify-center text-gray-500">
-              <Loader2 className="h-5 w-5 mr-2 animate-spin" />
-              Carregando relatorios
-            </CardContent>
-          </Card>
+          <LoadingState title="Carregando relatorios" className="md:col-span-2 lg:col-span-3" />
         ) : relatorios.length === 0 ? (
-          <Card className="md:col-span-2 lg:col-span-3">
-            <CardContent className="flex h-40 items-center justify-center text-gray-500">
-              Nenhum tipo de relatorio cadastrado
-            </CardContent>
-          </Card>
+          <EmptyState title="Nenhum tipo de relatorio cadastrado" className="md:col-span-2 lg:col-span-3" />
         ) : (
           relatorios.map((rel) => (
-            <Card key={rel.id} className="hover:shadow-md transition-shadow" data-testid={`relatorio-${rel.id}`}>
+            <Card key={rel.id} className="border-slate-200 shadow-sm hover:shadow-md transition-shadow" data-testid={`relatorio-${rel.id}`}>
               <CardContent className="p-6">
                 <div className="flex items-start gap-4">
-                  <div className={`p-3 rounded-lg ${rel.cor}`}>
+                  <div className={cn('rounded-xl p-3', rel.cor)}>
                     <FileBarChart className="h-6 w-6 text-white" />
                   </div>
                   <div className="min-w-0 flex-1">
@@ -197,7 +168,7 @@ const Relatorios = () => {
         <CardContent>
           <div className="space-y-3">
             {relatoriosRecentes.length === 0 ? (
-              <div className="text-center py-8 text-gray-500">Nenhum relatorio gerado ainda</div>
+              <div className="text-center py-8 text-slate-500">Nenhum relatorio gerado ainda</div>
             ) : (
               relatoriosRecentes.map((rel) => (
                 <div

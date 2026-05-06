@@ -15,6 +15,10 @@ import {
 } from 'lucide-react';
 import { api } from '@/context/AuthContext';
 import { countCriticalAlertas, normalizeAlertas } from '@/lib/alertas';
+import PageHeader from '@/components/ui/page-header';
+import KPICard from '@/components/ui/kpi-card';
+import LoadingState from '@/components/ui/loading-state';
+import EmptyState from '@/components/ui/empty-state';
 
 const toArray = (value) => {
   if (Array.isArray(value)) return value;
@@ -47,30 +51,6 @@ const isStatus = (item, statuses) => {
   const status = String(item?.status || item?.data?.status || '').toLowerCase();
   return statuses.includes(status);
 };
-
-const StatCard = ({ title, value, icon: Icon, color, subtitle }) => (
-  <Card className="hover:shadow-lg transition-shadow" data-testid={`stat-${title.toLowerCase().replace(/\s/g, '-')}`}>
-    <CardContent className="p-6">
-      <div className="flex items-center justify-between gap-4">
-        <div className="min-w-0">
-          <p className="text-sm font-medium text-gray-500">{title}</p>
-          <p className="text-3xl font-bold mt-1 text-gray-900">{value}</p>
-          {subtitle && <p className="text-xs text-gray-400 mt-1">{subtitle}</p>}
-        </div>
-        <div className={`p-3 rounded-full ${color}`}>
-          <Icon className="h-6 w-6 text-white" />
-        </div>
-      </div>
-    </CardContent>
-  </Card>
-);
-
-const EmptyState = ({ text }) => (
-  <div className="text-center py-8 text-gray-500">
-    <Clock className="h-10 w-10 mx-auto mb-3 text-gray-300" />
-    <p className="text-sm">{text}</p>
-  </div>
-);
 
 const Dashboard = () => {
   const [dashboard, setDashboard] = useState({});
@@ -174,19 +154,15 @@ const Dashboard = () => {
   };
 
   if (loading) {
-    return (
-      <div className="flex items-center justify-center h-64">
-        <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-900"></div>
-      </div>
-    );
+    return <LoadingState title="Carregando dashboard" description="Aguarde enquanto consolidamos os dados do sistema." />;
   }
 
   return (
     <div className="space-y-6" data-testid="dashboard-page">
-      <div>
-        <h1 className="text-2xl font-bold text-gray-900">Dashboard</h1>
-        <p className="text-gray-500">Visao geral do sistema com dados do MongoDB</p>
-      </div>
+      <PageHeader
+        title="Dashboard"
+        description="Visao geral do sistema com dados do MongoDB."
+      />
 
       {erro && (
         <Card className="border-red-200 bg-red-50">
@@ -198,30 +174,30 @@ const Dashboard = () => {
       )}
 
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
-        <StatCard title="Empresas Ativas" value={formatarNumero(metrics.empresasAtivas)} icon={Building2} color="bg-blue-500" />
-        <StatCard title="Documentos Processados" value={formatarNumero(metrics.documentosProcessados)} icon={FileText} color="bg-green-500" />
-        <StatCard title="Documentos OCR" value={formatarNumero(metrics.documentosOcr)} icon={ScanLine} color="bg-indigo-500" />
-        <StatCard title="OCR com Erro" value={formatarNumero(metrics.ocrErro)} icon={AlertTriangle} color="bg-red-500" />
+        <KPICard title="Empresas Ativas" value={formatarNumero(metrics.empresasAtivas)} icon={Building2} tone="blue" data-testid="stat-empresas-ativas" />
+        <KPICard title="Documentos Processados" value={formatarNumero(metrics.documentosProcessados)} icon={FileText} tone="emerald" data-testid="stat-documentos-processados" />
+        <KPICard title="Documentos OCR" value={formatarNumero(metrics.documentosOcr)} icon={ScanLine} tone="violet" data-testid="stat-documentos-ocr" />
+        <KPICard title="OCR com Erro" value={formatarNumero(metrics.ocrErro)} icon={AlertTriangle} tone="rose" data-testid="stat-ocr-com-erro" />
       </div>
 
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 gap-6">
-        <StatCard title="Obrigacoes Pendentes" value={formatarNumero(metrics.obrigacoesPendentes)} icon={Clock} color="bg-orange-500" />
-        <StatCard title="Alertas Criticos" value={formatarNumero(metrics.alertasCriticos)} icon={AlertTriangle} color="bg-rose-500" />
-        <StatCard title="Guias/DAS Gerados" value={formatarNumero(metrics.guiasGeradas)} icon={FileCheck} color="bg-cyan-500" />
-        <StatCard title="Certidoes Emitidas" value={formatarNumero(metrics.certidoesEmitidas)} icon={CheckCircle} color="bg-purple-500" />
-        <StatCard title="Conformidade Fiscal" value={formatarPercentual(metrics.taxaConformidade)} icon={TrendingUp} color="bg-emerald-500" />
+        <KPICard title="Obrigacoes Pendentes" value={formatarNumero(metrics.obrigacoesPendentes)} icon={Clock} tone="amber" data-testid="stat-obrigacoes-pendentes" />
+        <KPICard title="Alertas Criticos" value={formatarNumero(metrics.alertasCriticos)} icon={AlertTriangle} tone="rose" data-testid="stat-alertas-criticos" />
+        <KPICard title="Guias/DAS Gerados" value={formatarNumero(metrics.guiasGeradas)} icon={FileCheck} tone="cyan" data-testid="stat-guias-gerados" />
+        <KPICard title="Certidoes Emitidas" value={formatarNumero(metrics.certidoesEmitidas)} icon={CheckCircle} tone="violet" data-testid="stat-certidoes-emitidas" />
+        <KPICard title="Conformidade Fiscal" value={formatarPercentual(metrics.taxaConformidade)} icon={TrendingUp} tone="emerald" data-testid="stat-conformidade-fiscal" />
       </div>
 
       <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-        <StatCard title="OCR Processados" value={formatarNumero(metrics.ocrProcessados)} icon={ShieldCheck} color="bg-emerald-500" subtitle="Concluidos com sucesso" />
-        <StatCard title="OCR Pendentes" value={formatarNumero(metrics.ocrPendentes)} icon={Clock} color="bg-yellow-500" subtitle="Recebidos ou em revisao" />
-        <StatCard title="Taxa OCR" value={formatarPercentual(dashboard.taxa_ocr_sucesso || ocrStats.taxa_sucesso)} icon={ScanLine} color="bg-blue-500" subtitle="Baseada nos documentos OCR" />
+        <KPICard title="OCR Processados" value={formatarNumero(metrics.ocrProcessados)} icon={ShieldCheck} tone="emerald" subtitle="Concluidos com sucesso" data-testid="stat-ocr-processados" />
+        <KPICard title="OCR Pendentes" value={formatarNumero(metrics.ocrPendentes)} icon={Clock} tone="amber" subtitle="Recebidos ou em revisao" data-testid="stat-ocr-pendentes" />
+        <KPICard title="Taxa OCR" value={formatarPercentual(dashboard.taxa_ocr_sucesso || ocrStats.taxa_sucesso)} icon={ScanLine} tone="blue" subtitle="Baseada nos documentos OCR" data-testid="stat-taxa-ocr" />
       </div>
 
       <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-        <StatCard title="Notificacoes Hoje" value={formatarNumero(metrics.notificacoesEnviadasHoje)} icon={Send} color="bg-sky-500" subtitle="Envios confirmados" />
-        <StatCard title="Falhas de Notificacao" value={formatarNumero(metrics.notificacoesFalhasHoje)} icon={AlertTriangle} color="bg-red-500" subtitle="Falhas registradas hoje" />
-        <StatCard title="Taxa Notificacoes" value={formatarPercentual(metrics.notificacoesTaxaSucesso)} icon={TrendingUp} color="bg-emerald-500" subtitle="Sucesso dos envios" />
+        <KPICard title="Notificacoes Hoje" value={formatarNumero(metrics.notificacoesEnviadasHoje)} icon={Send} tone="cyan" subtitle="Envios confirmados" data-testid="stat-notificacoes-hoje" />
+        <KPICard title="Falhas de Notificacao" value={formatarNumero(metrics.notificacoesFalhasHoje)} icon={AlertTriangle} tone="rose" subtitle="Falhas registradas hoje" data-testid="stat-falhas-notificacao" />
+        <KPICard title="Taxa Notificacoes" value={formatarPercentual(metrics.notificacoesTaxaSucesso)} icon={TrendingUp} tone="emerald" subtitle="Sucesso dos envios" data-testid="stat-taxa-notificacoes" />
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
@@ -234,7 +210,7 @@ const Dashboard = () => {
           </CardHeader>
           <CardContent>
             {proximosVencimentos.length === 0 ? (
-              <EmptyState text="Nenhuma obrigacao encontrada." />
+                <EmptyState title="Nenhuma obrigacao encontrada." icon={Clock} />
             ) : (
               <div className="space-y-3">
                 {proximosVencimentos.map((ob, index) => (
@@ -265,7 +241,7 @@ const Dashboard = () => {
           </CardHeader>
           <CardContent>
             {documentosRecentes.length === 0 ? (
-              <EmptyState text="Nenhum documento encontrado." />
+                <EmptyState title="Nenhum documento encontrado." icon={FileText} />
             ) : (
               <div className="space-y-3">
                 {documentosRecentes.map((doc, index) => (
