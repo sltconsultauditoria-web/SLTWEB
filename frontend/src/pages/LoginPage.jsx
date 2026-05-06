@@ -23,7 +23,7 @@ const LoginPage = () => {
   const { login, isAuthenticated, loading: authLoading } = useAuth();
 
   const [email, setEmail] = useState("admin@empresa.com");
-  const [password, setPassword] = useState("123456");
+  const [password, setPassword] = useState("admin123");
   const [rememberMe, setRememberMe] = useState(true);
 
   const [loading, setLoading] = useState(false);

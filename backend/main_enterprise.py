@@ -18,7 +18,7 @@ from backend.engines.fiscal_engine import FiscalEngine
 from backend.integrations.government.ecac_service import GovernmentECACService
 from backend.integrations.government.pgdas_service import PGDAService
 from backend.integrations.government.sefaz_service import SEFAZService
-from backend.core.security import create_access_token, decode_access_token
+from backend.core.security import create_access_token, decode_access_token, verify_password
 from backend.services.decision_engine import DecisionEngine
 from backend.services.email_service import public_smtp_config
 from backend.services.notification_service import (
@@ -1834,20 +1834,92 @@ def api_health():
     return health()
 
 
+DEFAULT_ADMINS_BY_EMAIL = {
+    "admin@empresa.com": {
+        "password": "admin123",
+        "name": "Administrador",
+        "role": "admin",
+    },
+    "william.lucas@sltconsult.com.br": {
+        "password": "Slt@2024",
+        "name": "William Lucas",
+        "role": "admin",
+    },
+    "admin@consultslt.com.br": {
+        "password": "Consult@2026",
+        "name": "Admin SLT",
+        "role": "admin",
+    },
+}
+
+
+def _find_auth_user(email: str) -> dict[str, Any] | None:
+    email_lower = email.strip().lower()
+    for collection in ("usuarios", "users"):
+        user = db[collection].find_one({"email": email_lower})
+        if user:
+            return user
+        user = db[collection].find_one({"email": email})
+        if user:
+            return user
+    return None
+
+
+def _stored_password(user: dict[str, Any]) -> str | None:
+    return (
+        user.get("hashed_password")
+        or user.get("senha_hash")
+        or user.get("password_hash")
+        or user.get("password")
+        or user.get("senha")
+    )
+
+
+def _password_matches(password: str, stored_password: str) -> bool:
+    return password == stored_password or verify_password(password, stored_password)
+
+
+def _sanitize_user(user: dict[str, Any]) -> dict[str, Any]:
+    user_data = serialize(user)
+    for field in ("senha", "password", "hashed_password", "senha_hash", "password_hash"):
+        user_data.pop(field, None)
+    return user_data
+
+
 @app.post("/api/auth/login")
 def login(payload: dict):
-    email = (payload.get("email") or "").strip()
+    email = (payload.get("email") or "").strip().lower()
     password = payload.get("password") or ""
     if not email or not password:
-        return {"success": False, "data": None, "total": 0}
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Email e senha sao obrigatorios")
 
-    user = db["usuarios"].find_one({"email": email}, {"senha": 0, "password": 0}) or {
-        "email": email,
-        "nome": "Administrador",
-        "role": "admin",
-        "perfil": "admin",
-    }
-    user_data = serialize(user)
+    user = _find_auth_user(email)
+    default_admin = DEFAULT_ADMINS_BY_EMAIL.get(email)
+
+    if user:
+        stored = _stored_password(user)
+        if stored:
+            if not _password_matches(password, stored):
+                raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Credenciais invalidas")
+        elif default_admin:
+            if password != default_admin["password"]:
+                raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Credenciais invalidas")
+        else:
+            raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Credenciais invalidas")
+        user_data = _sanitize_user(user)
+    elif default_admin:
+        if password != default_admin["password"]:
+            raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Credenciais invalidas")
+        user_data = {
+            "email": email,
+            "nome": default_admin["name"],
+            "name": default_admin["name"],
+            "role": default_admin["role"],
+            "perfil": default_admin["role"],
+        }
+    else:
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Credenciais invalidas")
+
     user_role = user_data.get("role") or user_data.get("perfil") or "admin"
     token = create_access_token(
         {
@@ -1857,8 +1929,19 @@ def login(payload: dict):
             "name": user_data.get("nome") or user_data.get("name") or "Administrador",
         }
     )
-    data = {"token": token, "user": user_data}
-    return envelope(data, token=data["token"], user=data["user"])
+    data = {
+        "token": token,
+        "access_token": token,
+        "token_type": "bearer",
+        "user": user_data,
+    }
+    return envelope(
+        data,
+        token=data["token"],
+        access_token=data["access_token"],
+        token_type=data["token_type"],
+        user=data["user"],
+    )
 
 
 @app.get("/api/me")

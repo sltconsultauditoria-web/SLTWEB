@@ -168,8 +168,14 @@ async def login(payload: LoginRequest):
         "message": "Login realizado com sucesso",
         "data": {
             "token": token,
+            "access_token": token,
+            "token_type": "bearer",
             "user": user_data,
         },
+        "token": token,
+        "access_token": token,
+        "token_type": "bearer",
+        "user": user_data,
     }
 
 
