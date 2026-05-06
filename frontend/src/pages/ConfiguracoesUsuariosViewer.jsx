@@ -29,7 +29,7 @@ import { cn } from '@/lib/utils';
 const emptyForm = {
   nome: '',
   email: '',
-  senha: '',
+  password: '',
 };
 
 const normalizeList = (payload) => {
@@ -117,7 +117,7 @@ const ConfiguracoesUsuariosViewer = () => {
     setForm({
       nome: viewer.nome || viewer.name || '',
       email: viewer.email || '',
-      senha: '',
+      password: '',
     });
     setModalOpen(true);
   };
@@ -139,8 +139,8 @@ const ConfiguracoesUsuariosViewer = () => {
       role: 'viewer',
       perfil: 'viewer',
     };
-    if (form.senha) {
-      payload.senha = form.senha;
+    if (form.password) {
+      payload.password = form.password;
     }
 
     try {
@@ -148,7 +148,7 @@ const ConfiguracoesUsuariosViewer = () => {
         await api.put(`/usuarios/viewers/${selectedViewer.id}`, payload);
         setFeedback({ type: 'success', message: 'Viewer atualizado com sucesso' });
       } else {
-        await api.post('/usuarios/viewers', { ...payload, senha: form.senha });
+        await api.post('/usuarios/viewers', payload);
         setFeedback({ type: 'success', message: 'Viewer criado com sucesso' });
       }
       closeModal();
@@ -364,8 +364,8 @@ const ConfiguracoesUsuariosViewer = () => {
               <Input
                 id="viewer-senha"
                 type="password"
-                value={form.senha}
-                onChange={(event) => setForm({ ...form, senha: event.target.value })}
+                value={form.password}
+                onChange={(event) => setForm({ ...form, password: event.target.value })}
                 minLength={6}
                 required={!selectedViewer}
               />

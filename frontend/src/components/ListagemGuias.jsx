@@ -38,7 +38,7 @@ const ListagemGuias = () => {
               <tr key={guia.id || guia._id || index} className="hover:bg-gray-50">
                 <td className="px-4 py-3">{guia.empresa || '-'}</td>
                 <td className="px-4 py-3">{guia.tipo || '-'}</td>
-                <td className="px-4 py-3">{guia.regime || '-'}</td>
+                <td className="px-4 py-3">{guia.regime_tributario || guia.regime || '-'}</td>
                 <td className="px-4 py-3">{guia.competencia || '-'}</td>
                 <td className="px-4 py-3">
                   R$ {Number(guia.valor || 0).toLocaleString('pt-BR', { minimumFractionDigits: 2 })}

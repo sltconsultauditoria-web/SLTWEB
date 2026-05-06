@@ -37,6 +37,13 @@ import {
 import { api } from '@/context/AuthContext';
 import InputMask from 'react-input-mask';
 
+const normalizeList = (payload, key) => {
+  if (Array.isArray(payload)) return payload;
+  if (Array.isArray(payload?.data)) return payload.data;
+  if (Array.isArray(payload?.[key])) return payload[key];
+  return [];
+};
+
 const Empresas = () => {
   const navigate = useNavigate();
   const [empresas, setEmpresas] = useState([]);
@@ -47,7 +54,7 @@ const Empresas = () => {
     cnpj: '',
     razao_social: '',
     nome_fantasia: '',
-    regime: 'simples',
+    regime_tributario: 'simples',
   });
 
   useEffect(() => {
@@ -57,7 +64,7 @@ const Empresas = () => {
   const fetchEmpresas = async () => {
     try {
       const response = await api.get('/empresas');
-      setEmpresas(response.data);
+      setEmpresas(normalizeList(response.data, 'empresas'));
     } catch (error) {
       console.error('Erro ao buscar empresas:', error);
     }
@@ -110,31 +117,38 @@ const Empresas = () => {
 
   const handleSubmit = async (e) => {
     e.preventDefault();
-    console.log('Dados enviados:', formData);
+    const payload = {
+      cnpj: formData.cnpj,
+      razao_social: formData.razao_social,
+      nome_fantasia: formData.nome_fantasia,
+      regime_tributario: formData.regime_tributario,
+    };
     try {
       if (editingEmpresa) {
-        const response = await api.put(`/empresas/${editingEmpresa.id}`, formData);
-        setEmpresas(empresas.map(emp => emp.id === editingEmpresa.id ? response.data : emp));
+        const response = await api.put(`/empresas/${editingEmpresa.id}`, payload);
+        const item = response.data?.data || response.data;
+        setEmpresas(empresas.map(emp => emp.id === editingEmpresa.id ? item : emp));
       } else {
-        const response = await api.post('/empresas', formData);
-        console.log('Resposta do backend:', response.data);
-        setEmpresas([...empresas, response.data]);
+        const response = await api.post('/empresas', payload);
+        const item = response.data?.data || response.data;
+        setEmpresas([...empresas, item]);
       }
       setIsModalOpen(false);
       setEditingEmpresa(null);
-      setFormData({ cnpj: '', razao_social: '', nome_fantasia: '', regime: 'simples' });
+      setFormData({ cnpj: '', razao_social: '', nome_fantasia: '', regime_tributario: 'simples' });
     } catch (error) {
       console.error('Erro ao salvar empresa:', error);
     }
   };
 
   const handleEdit = (empresa) => {
+    const regime = empresa.regime_tributario || empresa.regime || 'simples';
     setEditingEmpresa(empresa);
     setFormData({
       cnpj: empresa.cnpj,
       razao_social: empresa.razao_social,
       nome_fantasia: empresa.nome_fantasia || '',
-      regime: empresa.regime
+      regime_tributario: regime
     });
     setIsModalOpen(true);
   };
@@ -151,7 +165,8 @@ const Empresas = () => {
   };
 
   const handleView = (empresa) => {
-    alert(`Detalhes da Empresa:\n\nCNPJ: ${empresa.cnpj}\nRazão Social: ${empresa.razao_social}\nNome Fantasia: ${empresa.nome_fantasia}\nRegime: ${getRegimeLabel(empresa.regime)}`);
+    const regime = empresa.regime_tributario || empresa.regime || 'simples';
+    alert(`Detalhes da Empresa:\n\nCNPJ: ${empresa.cnpj}\nRazão Social: ${empresa.razao_social}\nNome Fantasia: ${empresa.nome_fantasia}\nRegime: ${getRegimeLabel(regime)}`);
   };
 
   const formatCurrency = (value) => {
@@ -171,7 +186,7 @@ const Empresas = () => {
               className="bg-blue-900 hover:bg-blue-800"
               onClick={() => {
                 setEditingEmpresa(null);
-                setFormData({ cnpj: '', razao_social: '', nome_fantasia: '', regime: 'simples' });
+                setFormData({ cnpj: '', razao_social: '', nome_fantasia: '', regime_tributario: 'simples' });
               }}
               data-testid="add-empresa-button"
             >
@@ -225,7 +240,7 @@ const Empresas = () => {
               </div>
               <div>
                 <Label htmlFor="regime">Regime Tributário</Label>
-                <Select value={formData.regime} onValueChange={(value) => setFormData({...formData, regime: value})}>
+                <Select value={formData.regime_tributario} onValueChange={(value) => setFormData({...formData, regime_tributario: value})}>
                   <SelectTrigger data-testid="regime-select">
                     <SelectValue placeholder="Selecione o regime" />
                   </SelectTrigger>
@@ -298,8 +313,8 @@ const Empresas = () => {
                     </td>
                     <td className="px-6 py-4 text-sm text-gray-900">{empresa.cnpj}</td>
                     <td className="px-6 py-4">
-                      <span className={`px-2 py-1 text-xs font-medium rounded-full ${getRegimeColor(empresa.regime)}`}>
-                        {getRegimeLabel(empresa.regime)}
+                      <span className={`px-2 py-1 text-xs font-medium rounded-full ${getRegimeColor(empresa.regime_tributario || empresa.regime)}`}>
+                        {getRegimeLabel(empresa.regime_tributario || empresa.regime)}
                       </span>
                     </td>
                     <td className="px-6 py-4 text-sm text-gray-900">{formatCurrency(empresa.receita_bruta)}</td>

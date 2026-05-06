@@ -48,7 +48,7 @@ const Guias = () => {
         setEmpresas(empresasData.map((empresa) => ({
           id: empresa.id,
           nome: empresa.razao_social || empresa.nome_fantasia || empresa.data?.nome || '',
-          regime: empresa.regime || empresa.data?.regime || 'simples',
+          regime: empresa.regime_tributario || empresa.regime || empresa.data?.regime_tributario || empresa.data?.regime || 'simples',
           cnpj: empresa.cnpj || empresa.data?.cnpj || '',
         })));
         const guiasData = Array.isArray(guiasResponse.data) ? guiasResponse.data : [];

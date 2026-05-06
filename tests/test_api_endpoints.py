@@ -322,6 +322,58 @@ def test_alertas_are_normalized(client):
         assert field in first
 
 
+def test_admin_protected_main_get_endpoints_return_200(client):
+    headers = auth_headers("admin", "admin@empresa.com")
+    paths = [
+        "/api/me",
+        "/api/usuarios",
+        "/api/usuarios/viewers",
+        "/api/relatorios",
+        "/api/tipos_relatorios",
+    ]
+
+    for path in paths:
+        response = client.get(path, headers=headers, follow_redirects=False)
+        assert response.status_code == 200, f"{path}: {response.text}"
+
+
+def test_empresas_and_documentos_payloads_are_normalized(client):
+    empresa_response = client.post(
+        "/api/empresas",
+        json={
+            "cnpj": "12.345.678/0001-90",
+            "razaoSocial": "Empresa Alias Ltda",
+            "nomeFantasia": "Empresa Alias",
+            "regime": "lucro_real",
+        },
+        follow_redirects=False,
+    )
+    assert empresa_response.status_code == 200, empresa_response.text
+    empresa = empresa_response.json()["data"]
+    assert empresa["razao_social"] == "Empresa Alias Ltda"
+    assert empresa["nome_fantasia"] == "Empresa Alias"
+    assert empresa["regime_tributario"] == "lucro_real"
+    assert "razaoSocial" not in empresa
+    assert "nomeFantasia" not in empresa
+    assert "regime" not in empresa
+
+    documento_response = client.post(
+        "/api/documentos",
+        json={
+            "nome": "documento-alias.pdf",
+            "empresa": empresa["id"],
+            "tipo": "application/pdf",
+        },
+        follow_redirects=False,
+    )
+    assert documento_response.status_code == 200, documento_response.text
+    documento = documento_response.json()["data"]
+    assert documento["nome_arquivo"] == "documento-alias.pdf"
+    assert documento["empresa_id"] == empresa["id"]
+    assert "nome" not in documento
+    assert "empresa" not in documento
+
+
 def test_sharepoint_sync_endpoint_returns_200_without_config(client, monkeypatch):
     monkeypatch.delenv("SHAREPOINT_SITE_URL", raising=False)
     monkeypatch.delenv("SHAREPOINT_DRIVE_ID", raising=False)
@@ -742,7 +794,7 @@ def test_me_requires_jwt_and_returns_role(client):
 def test_admin_can_create_and_delete_usuario(client):
     created = client.post(
         "/api/usuarios",
-        json={"email": "novo.viewer@empresa.com", "nome": "Novo Viewer", "senha": "Viewer@2026", "role": "viewer"},
+        json={"email": "novo.viewer@empresa.com", "nome": "Novo Viewer", "password": "Viewer@2026", "role": "viewer"},
         headers=auth_headers("admin", "admin@empresa.com"),
         follow_redirects=False,
     )
@@ -779,7 +831,7 @@ def test_viewer_cannot_manage_usuarios(client):
 
     create_response = client.post(
         "/api/usuarios",
-        json={"email": "blocked@empresa.com", "nome": "Blocked", "senha": "Viewer@2026"},
+        json={"email": "blocked@empresa.com", "nome": "Blocked", "password": "Viewer@2026"},
         headers=auth_headers("viewer", "viewer1@empresa.com"),
         follow_redirects=False,
     )
@@ -796,14 +848,14 @@ def test_viewer_cannot_manage_usuarios(client):
 def test_usuario_create_requires_token_and_valid_payload(client):
     no_token = client.post(
         "/api/usuarios",
-        json={"email": "sem.token@empresa.com", "nome": "Sem Token", "senha": "Viewer@2026"},
+        json={"email": "sem.token@empresa.com", "nome": "Sem Token", "password": "Viewer@2026"},
         follow_redirects=False,
     )
     assert no_token.status_code == 401
 
     invalid_payload = client.post(
         "/api/usuarios",
-        json={"nome": "Payload Invalido", "senha": "Viewer@2026"},
+        json={"nome": "Payload Invalido", "password": "Viewer@2026"},
         headers=auth_headers("admin", "admin@empresa.com"),
         follow_redirects=False,
     )
@@ -813,7 +865,7 @@ def test_usuario_create_requires_token_and_valid_payload(client):
 def test_admin_can_manage_viewer_specific_endpoints(client):
     created = client.post(
         "/api/usuarios/viewers",
-        json={"email": "viewer.crud@empresa.com", "nome": "Viewer CRUD", "senha": "Viewer@2026", "role": "admin"},
+        json={"email": "viewer.crud@empresa.com", "nome": "Viewer CRUD", "password": "Viewer@2026", "role": "admin"},
         headers=auth_headers("admin", "admin@empresa.com"),
         follow_redirects=False,
     )
@@ -852,14 +904,14 @@ def test_admin_can_manage_viewer_specific_endpoints(client):
 def test_viewer_and_missing_token_cannot_manage_viewer_endpoints(client):
     no_token = client.post(
         "/api/usuarios/viewers",
-        json={"email": "no.token.viewer@empresa.com", "nome": "No Token", "senha": "Viewer@2026"},
+        json={"email": "no.token.viewer@empresa.com", "nome": "No Token", "password": "Viewer@2026"},
         follow_redirects=False,
     )
     assert no_token.status_code == 401
 
     viewer_create = client.post(
         "/api/usuarios/viewers",
-        json={"email": "blocked.viewer@empresa.com", "nome": "Blocked", "senha": "Viewer@2026"},
+        json={"email": "blocked.viewer@empresa.com", "nome": "Blocked", "password": "Viewer@2026"},
         headers=auth_headers("viewer", "viewer1@empresa.com"),
         follow_redirects=False,
     )

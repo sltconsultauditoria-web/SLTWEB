@@ -1671,6 +1671,53 @@ def create_item(collection_name: str, payload: dict[str, Any]) -> dict[str, Any]
     return serialize(document)
 
 
+def normalize_empresa_payload(payload: dict[str, Any], *, partial: bool = False) -> dict[str, Any]:
+    document = request_data(payload)
+    normalized = dict(document)
+    if not partial or any(key in document for key in ("razao_social", "razaoSocial", "nome", "name")):
+        normalized["razao_social"] = (
+            document.get("razao_social")
+            or document.get("razaoSocial")
+            or document.get("nome")
+            or document.get("name")
+            or ""
+        )
+    if not partial or any(key in document for key in ("nome_fantasia", "nomeFantasia")):
+        normalized["nome_fantasia"] = document.get("nome_fantasia") or document.get("nomeFantasia") or ""
+    if not partial or any(key in document for key in ("regime_tributario", "regimeTributario", "regime")):
+        normalized["regime_tributario"] = (
+            document.get("regime_tributario")
+            or document.get("regimeTributario")
+            or document.get("regime")
+            or "simples"
+        )
+    normalized.pop("razaoSocial", None)
+    normalized.pop("nomeFantasia", None)
+    normalized.pop("regimeTributario", None)
+    normalized.pop("regime", None)
+    return normalized
+
+
+def normalize_documento_payload(payload: dict[str, Any]) -> dict[str, Any]:
+    document = request_data(payload)
+    normalized = dict(document)
+    normalized["nome_arquivo"] = (
+        document.get("nome_arquivo")
+        or document.get("nome")
+        or document.get("file_name")
+        or document.get("filename")
+        or "Documento"
+    )
+    normalized["empresa_id"] = document.get("empresa_id") or document.get("empresa") or ""
+    normalized["tipo"] = document.get("tipo") or document.get("content_type") or "Arquivo"
+    normalized["status"] = document.get("status") or "recebido"
+    normalized.pop("nome", None)
+    normalized.pop("file_name", None)
+    normalized.pop("filename", None)
+    normalized.pop("empresa", None)
+    return normalized
+
+
 def delete_document(collection_name: str, item_id: str) -> dict[str, Any]:
     query = object_query(item_id)
     result = db[collection_name].delete_one(query)
@@ -2496,13 +2543,13 @@ def empresas():
 
 @app.post("/api/empresas")
 def criar_empresa(payload: dict):
-    data = create_item("empresas", payload)
+    data = create_item("empresas", normalize_empresa_payload(payload))
     return envelope(data, **data)
 
 
 @app.put("/api/empresas/{item_id}")
 def atualizar_empresa(item_id: str, payload: dict):
-    data = update_item("empresas", item_id, payload)
+    data = update_item("empresas", item_id, normalize_empresa_payload(payload, partial=True))
     return envelope(data, **data)
 
 
@@ -2542,7 +2589,7 @@ def documentos():
 
 @app.post("/api/documentos")
 def criar_documento(payload: dict):
-    data = create_item("documentos", payload)
+    data = create_item("documentos", normalize_documento_payload(payload))
     return envelope(data, **data)
 
 
@@ -2788,29 +2835,6 @@ def criar_usuario(payload: UsuarioCreateRequest, authorization: str = Depends(re
     return envelope(data, **data)
 
 
-@app.put("/api/usuarios/{item_id}")
-def atualizar_usuario(item_id: str, payload: UsuarioUpdateRequest, authorization: str = Depends(require_bearer_authorization)):
-    require_admin(authorization)
-    existing = find_usuario_by_id(item_id)
-    if not existing:
-        raise HTTPException(status_code=404, detail="Registro nao encontrado")
-    document = build_user_document(model_payload(payload), is_create=False)
-    ensure_not_last_admin_change(existing, document.get("role") or document.get("perfil"))
-    data = update_item("usuarios", item_id, document)
-    data = _sanitize_user(data)
-    return envelope(data, **data)
-
-
-@app.delete("/api/usuarios/{item_id}")
-def excluir_usuario(item_id: str, authorization: str = Depends(require_bearer_authorization)):
-    require_admin(authorization)
-    existing = find_usuario_by_id(item_id)
-    if not existing:
-        raise HTTPException(status_code=404, detail="Registro nao encontrado")
-    ensure_not_last_admin_change(existing, deleting=True)
-    return envelope(delete_item("usuarios", item_id))
-
-
 @app.get("/api/usuarios/viewers")
 def listar_viewers(authorization: str = Depends(require_bearer_authorization)):
     require_admin(authorization)
@@ -2833,6 +2857,29 @@ def criar_viewer(payload: UsuarioCreateRequest, authorization: str = Depends(req
     data = create_item("usuarios", document)
     data = _sanitize_user(data)
     return envelope(data, **data)
+
+
+@app.put("/api/usuarios/{item_id}")
+def atualizar_usuario(item_id: str, payload: UsuarioUpdateRequest, authorization: str = Depends(require_bearer_authorization)):
+    require_admin(authorization)
+    existing = find_usuario_by_id(item_id)
+    if not existing:
+        raise HTTPException(status_code=404, detail="Registro nao encontrado")
+    document = build_user_document(model_payload(payload), is_create=False)
+    ensure_not_last_admin_change(existing, document.get("role") or document.get("perfil"))
+    data = update_item("usuarios", item_id, document)
+    data = _sanitize_user(data)
+    return envelope(data, **data)
+
+
+@app.delete("/api/usuarios/{item_id}")
+def excluir_usuario(item_id: str, authorization: str = Depends(require_bearer_authorization)):
+    require_admin(authorization)
+    existing = find_usuario_by_id(item_id)
+    if not existing:
+        raise HTTPException(status_code=404, detail="Registro nao encontrado")
+    ensure_not_last_admin_change(existing, deleting=True)
+    return envelope(delete_item("usuarios", item_id))
 
 
 @app.put("/api/usuarios/viewers/{item_id}")

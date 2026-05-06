@@ -18,6 +18,13 @@ import { resolveApiBaseUrl } from '@/lib/apiClient';
 import { Viewer } from '@react-pdf-viewer/core';
 import '@react-pdf-viewer/core/lib/styles/index.css';
 
+const normalizeList = (payload, key) => {
+  if (Array.isArray(payload)) return payload;
+  if (Array.isArray(payload?.data)) return payload.data;
+  if (Array.isArray(payload?.[key])) return payload[key];
+  return [];
+};
+
 const Documentos = () => {
   const [documentos, setDocumentos] = useState([]);
 
@@ -25,12 +32,12 @@ const Documentos = () => {
     const carregarDocumentos = async () => {
       try {
         const response = await api.get('/documentos');
-        const items = Array.isArray(response.data) ? response.data : [];
+        const items = normalizeList(response.data, 'documentos');
         setDocumentos(items.map((item) => ({
           id: item.id,
-          nome: item.nome || item.data?.nome || item.file_name || 'Documento',
+          nome: item.nome_arquivo || item.nome || item.data?.nome_arquivo || item.data?.nome || item.file_name || 'Documento',
           tipo: item.tipo || item.data?.tipo || 'Arquivo',
-          empresa: item.empresa || item.data?.empresa || '',
+          empresa: item.empresa_id || item.empresa || item.data?.empresa_id || item.data?.empresa || '',
           status: item.status || item.data?.status || 'processado',
           tempo: item.tempo || item.data?.tempo || null,
           data: item.created_at || item.data?.created_at || '',
@@ -73,25 +80,23 @@ const Documentos = () => {
     files.forEach(async (file) => {
       try {
         const payload = {
-          data: {
-            nome: file.name,
-            tipo: file.type || 'Arquivo',
-            empresa: '',
-            status: 'recebido',
-            tamanho: file.size,
-            created_at: new Date().toISOString(),
-          },
+          nome_arquivo: file.name,
+          tipo: file.type || 'Arquivo',
+          empresa_id: '',
+          status: 'recebido',
+          tamanho: file.size,
+          created_at: new Date().toISOString(),
         };
         const response = await api.post('/documentos', payload);
-        const item = response.data;
+        const item = response.data?.data || response.data;
         setDocumentos((prev) => [{
           id: item.id,
-          nome: payload.data.nome,
-          tipo: payload.data.tipo,
-          empresa: payload.data.empresa,
-          status: payload.data.status,
+          nome: item.nome_arquivo || payload.nome_arquivo,
+          tipo: item.tipo || payload.tipo,
+          empresa: item.empresa_id || payload.empresa_id,
+          status: item.status || payload.status,
           tempo: null,
-          data: payload.data.created_at,
+          data: item.created_at || payload.created_at,
         }, ...prev]);
       } catch (error) {
         console.error('Erro ao registrar documento:', error);

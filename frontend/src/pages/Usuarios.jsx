@@ -54,7 +54,7 @@ const Usuarios = () => {
   const [formData, setFormData] = useState({
     nome: '',
     email: '',
-    senha: '',
+    password: '',
     perfil: 'viewer',
     role: 'viewer',
     ativo: true
@@ -95,7 +95,10 @@ const Usuarios = () => {
       
       if (isEditMode && selectedUsuario) {
         // Editar usuário (sem enviar senha)
-        const { senha, ...updateData } = formData;
+        const { password, ...updateData } = formData;
+        if (password) {
+          updateData.password = password;
+        }
         await api.put(`/usuarios/${selectedUsuario.id}`, updateData);
       } else {
         // Criar novo usuário
@@ -121,7 +124,7 @@ const Usuarios = () => {
     setFormData({
       nome: usuario.nome,
       email: usuario.email,
-      senha: '',
+      password: '',
       perfil: usuario.perfil || usuario.role || 'viewer',
       role: usuario.role || usuario.perfil || 'viewer',
       ativo: usuario.ativo
@@ -148,7 +151,7 @@ const Usuarios = () => {
     setFormData({
       nome: '',
       email: '',
-      senha: '',
+      password: '',
       perfil: 'viewer',
       role: 'viewer',
       ativo: true
@@ -253,8 +256,8 @@ const Usuarios = () => {
                   <Input 
                     required={!isEditMode}
                     type="password"
-                    value={formData.senha} 
-                    onChange={(e) => setFormData({...formData, senha: e.target.value})} 
+                    value={formData.password}
+                    onChange={(e) => setFormData({...formData, password: e.target.value})}
                     placeholder="Mínimo 6 caracteres"
                     minLength={6}
                   />
@@ -263,7 +266,7 @@ const Usuarios = () => {
               <div>
                 <Label>Perfil de Acesso</Label>
                 <Select
-                  value={isEditMode ? formData.perfil : 'visualizacao'}
+                  value={isEditMode ? formData.perfil : 'viewer'}
                   onValueChange={(v) => setFormData({...formData, perfil: v, role: v})}
                   disabled={!isEditMode}
                 >

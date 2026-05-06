@@ -117,6 +117,7 @@ def test_admin_viewer_management_frontend_contract():
     sidebar = read_text(FRONTEND / "src" / "components" / "Layout" / "Sidebar.jsx")
     configuracoes = read_text(FRONTEND / "src" / "pages" / "Configuracoes.jsx")
     page = read_text(FRONTEND / "src" / "pages" / "ConfiguracoesUsuariosViewer.jsx")
+    usuarios = read_text(FRONTEND / "src" / "pages" / "Usuarios.jsx")
 
     assert "ConfiguracoesUsuariosViewer" in app_js
     assert 'path="/configuracoes/usuarios-viewer"' in app_js
@@ -130,8 +131,31 @@ def test_admin_viewer_management_frontend_contract():
     assert "api.put(`/usuarios/viewers/${selectedViewer.id}`" in page
     assert "api.delete(`/usuarios/viewers/${selectedViewer.id}`" in page
     assert "role: 'viewer'" in page
+    assert "payload.password = form.password" in page
+    assert "payload.senha" not in page
+    assert "form.senha" not in page
+    assert "formData.senha" not in usuarios
+    assert "password: ''" in usuarios
     assert "setForm({ ...form, role" not in page
     assert '<Navigate to="/dashboard" replace />' in page
+
+
+def test_form_field_contracts_are_normalized():
+    login_page = read_text(FRONTEND / "src" / "pages" / "LoginPage.jsx")
+    empresas = read_text(FRONTEND / "src" / "pages" / "Empresas.jsx")
+    documentos = read_text(FRONTEND / "src" / "pages" / "Documentos.jsx")
+
+    assert 'useState("admin123")' not in login_page
+    assert "regime_tributario" in empresas
+    assert "api.post('/empresas', payload)" in empresas
+    assert "regime: 'simples'" not in empresas
+    assert "console.log('Dados enviados:'" not in empresas
+    assert "console.log('Resposta do backend:'" not in empresas
+
+    assert "nome_arquivo: file.name" in documentos
+    assert "empresa_id: ''" in documentos
+    assert "api.post('/documentos', payload)" in documentos
+    assert "data: {" not in documentos
 
 
 def test_relatorios_frontend_uses_api_client_and_blob_exports():
