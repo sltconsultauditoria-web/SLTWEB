@@ -7,6 +7,31 @@ export const masks = {
 
 const onlyDigits = (value) => String(value || "").replace(/\D/g, "");
 
+export const normalizeEmail = (value) => String(value || "").trim().toLowerCase().replace(/\s+/g, "");
+
+export const formatCompetencia = (value) => {
+  const digits = onlyDigits(value).slice(0, 6);
+  if (digits.length <= 2) return digits;
+  return `${digits.slice(0, 2)}/${digits.slice(2)}`;
+};
+
+export const formatProtocol = (value) => String(value || "").trim().toUpperCase().replace(/\s+/g, "");
+
+export const formatPercent = (value) => {
+  const digits = String(value || "").replace(/[^\d,.-]/g, "");
+  return digits.replace(".", ",");
+};
+
+export const formatCurrencyInput = (value) => {
+  const digits = onlyDigits(value);
+  if (!digits) return "";
+  const number = Number(digits) / 100;
+  return new Intl.NumberFormat("pt-BR", {
+    style: "currency",
+    currency: "BRL",
+  }).format(Number.isFinite(number) ? number : 0);
+};
+
 export const formatCNPJ = (value) => {
   const digits = onlyDigits(value).slice(0, 14);
   return digits
