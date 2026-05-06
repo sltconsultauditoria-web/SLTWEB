@@ -12,7 +12,7 @@ import zipfile
 from xml.sax.saxutils import escape as xml_escape
 
 from bson import ObjectId
-from fastapi import Depends, FastAPI, File, Form, Header, HTTPException, UploadFile, WebSocket, WebSocketDisconnect, Response, status
+from fastapi import Depends, FastAPI, File, Form, Header, HTTPException, Query, UploadFile, WebSocket, WebSocketDisconnect, Response, status
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from pydantic import BaseModel, Field
@@ -2191,6 +2191,11 @@ def api_health():
     return health()
 
 
+@app.get("/api/health_check/")
+def api_health_check():
+    return health()
+
+
 DEFAULT_ADMINS_BY_EMAIL = {
     "admin@empresa.com": {
         "password": "admin123",
@@ -3475,6 +3480,25 @@ def export_relatorios_excel(
         media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
         headers={"Content-Disposition": f'attachment; filename="{filename}"'},
     )
+
+
+@app.get("/api/relatorios/export/{format}")
+def export_relatorios_format(
+    format: str,
+    _current_user: dict[str, Any] = Depends(require_relatorios_access),
+    empresa_id: str | None = None,
+    status_filter: str | None = Query(default=None, alias="status"),
+    inicio: str | None = None,
+    fim: str | None = None,
+    start: str | None = None,
+    end: str | None = None,
+):
+    format_norm = str(format or "").strip().lower()
+    if format_norm == "pdf":
+        return export_relatorios_pdf(_current_user, empresa_id, status_filter, inicio, fim, start, end)
+    if format_norm in {"excel", "xlsx"}:
+        return export_relatorios_excel(_current_user, empresa_id, status_filter, inicio, fim, start, end)
+    raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail="Formato de relatorio invalido")
 
 
 @app.get("/api/alertas")

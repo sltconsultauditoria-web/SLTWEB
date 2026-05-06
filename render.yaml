@@ -17,7 +17,7 @@ services:
       - key: JWT_SECRET
         sync: false
       - key: CORS_ORIGINS
-        value: https://sltconsultauditoria-web.github.io
+        value: https://sltconsultauditoria-web.github.io,http://localhost:3000
       - key: FRONTEND_URL
         value: https://sltconsultauditoria-web.github.io
       - key: REDIS_URL
