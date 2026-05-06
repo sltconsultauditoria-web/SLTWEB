@@ -3,7 +3,7 @@ import { AuthProvider, useAuth } from "@/context/AuthContext";
 import { isAdminUser } from "@/lib/rbac";
 import LoginPage from "@/pages/LoginPage";
 import ForgotPasswordPage from "@/pages/ForgotPasswordPage";
-import MainLayout from "@/components/Layout/MainLayout";
+import AppLayout from "@/layout/AppLayout";
 import Dashboard from "@/pages/Dashboard";
 import Empresas from "@/pages/Empresas";
 import Documentos from "@/pages/Documentos";
@@ -36,7 +36,7 @@ function App() {
           <Route path="/login" element={<LoginPage />} />
           <Route path="/esqueci-senha" element={<ForgotPasswordPage />} />
 
-          <Route element={<MainLayout />}>
+          <Route element={<AppLayout />}>
             <Route path="/dashboard" element={<Dashboard />} />
             <Route path="/empresas" element={<Empresas />} />
             <Route path="/empresas/:empresaId/timeline" element={<TimelineEmpresa />} />
