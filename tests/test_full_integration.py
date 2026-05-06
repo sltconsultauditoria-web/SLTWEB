@@ -19,7 +19,7 @@ def test_full_integration_backend_smoke_and_persistence(client):
     assert health.status_code == 200
     assert health.json()["data"]["mongo"] in {"ok", "erro"}
 
-    login = client.post("/api/auth/login", json={"email": "admin@consultslt.com", "password": "senha"})
+    login = client.post("/api/auth/login", json={"email": "admin@empresa.com", "password": "admin123"})
     assert login.status_code == 200
     token = login.json()["data"]["token"]
     assert token

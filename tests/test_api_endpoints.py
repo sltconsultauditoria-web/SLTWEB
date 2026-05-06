@@ -256,7 +256,7 @@ def wait_for_job(client, job_id, timeout=5.0):
     [
         ("GET", "/health", {}),
         ("GET", "/api/dashboard", {}),
-        ("POST", "/api/auth/login", {"json": {"email": "admin@consultslt.com", "password": "senha"}}),
+        ("POST", "/api/auth/login", {"json": {"email": "admin@empresa.com", "password": "admin123"}}),
         ("GET", "/api/empresas", {}),
         ("GET", "/api/documentos", {}),
         ("GET", "/api/guias", {}),
