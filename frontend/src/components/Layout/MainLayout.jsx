@@ -1,15 +1,17 @@
-import { Navigate, Outlet } from 'react-router-dom';
-import { useAuth } from '@/context/AuthContext';
-import Sidebar from './Sidebar';
-import NotificationBell from '@/components/NotificationBell';
+import { useState } from "react";
+import { Navigate, Outlet } from "react-router-dom";
+import { useAuth } from "@/context/AuthContext";
+import Sidebar from "./Sidebar";
+import Header from "./Header";
 
 const MainLayout = () => {
-  const { isAuthenticated, loading, user } = useAuth();
+  const { isAuthenticated, loading } = useAuth();
+  const [collapsed, setCollapsed] = useState(false);
 
   if (loading) {
     return (
-      <div className="min-h-screen flex items-center justify-center bg-gray-100">
-        <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-900"></div>
+      <div className="flex min-h-screen items-center justify-center bg-slate-50">
+        <div className="h-12 w-12 animate-spin rounded-full border-4 border-slate-200 border-t-slate-900" />
       </div>
     );
   }
@@ -19,30 +21,15 @@ const MainLayout = () => {
   }
 
   return (
-    <div className="flex h-screen bg-gray-100" data-testid="main-layout">
-      <Sidebar />
-      
-      <div className="flex-1 flex flex-col overflow-hidden">
-        {/* Top Bar */}
-        <header className="bg-white shadow-sm border-b border-gray-200 px-4 md:px-6 py-4 flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
-          <div className="min-w-0">
-            <h2 className="text-lg font-semibold text-gray-800">Sistema de Gestão Fiscal Integrada</h2>
-            <p className="text-sm text-gray-500">Powered by SLT Consult</p>
-          </div>
-          <div className="flex items-center gap-4 shrink-0">
-            <NotificationBell />
-            <div className="flex items-center gap-2">
-              <div className="w-8 h-8 bg-blue-900 rounded-full flex items-center justify-center text-white font-semibold">
-                {user?.name?.charAt(0) || user?.email?.charAt(0) || 'U'}
-              </div>
-              <span className="text-sm font-medium text-gray-700">{user?.name || 'Usuário'}</span>
-            </div>
-          </div>
-        </header>
+    <div className="flex min-h-screen bg-slate-50" data-testid="main-layout">
+      <Sidebar collapsed={collapsed} setCollapsed={setCollapsed} />
 
-        {/* Main Content */}
+      <div className="flex min-w-0 flex-1 flex-col">
+        <Header />
         <main className="flex-1 overflow-auto p-4 md:p-6">
-          <Outlet />
+          <div className="mx-auto flex w-full max-w-[1600px] flex-col gap-6">
+            <Outlet />
+          </div>
         </main>
       </div>
     </div>
