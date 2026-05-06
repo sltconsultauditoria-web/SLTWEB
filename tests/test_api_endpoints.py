@@ -754,6 +754,117 @@ def test_usuario_create_requires_token_and_valid_payload(client):
     assert invalid_payload.status_code == 422
 
 
+def test_admin_can_manage_viewer_specific_endpoints(client):
+    created = client.post(
+        "/api/usuarios/viewers",
+        json={"email": "viewer.crud@empresa.com", "nome": "Viewer CRUD", "senha": "Viewer@2026", "role": "admin"},
+        headers=auth_headers("admin", "admin@empresa.com"),
+        follow_redirects=False,
+    )
+    assert created.status_code == 201, created.text
+    payload = created.json()["data"]
+    assert payload["role"] == "viewer"
+    assert payload["perfil"] == "viewer"
+    assert payload["email"] == "viewer.crud@empresa.com"
+    stored = app_module.db["usuarios"].find_one({"email": "viewer.crud@empresa.com"})
+    assert stored["role"] == "viewer"
+    assert "senha_hash" in stored
+    assert stored.get("senha") is None
+
+    listed = client.get("/api/usuarios/viewers", headers=auth_headers("admin", "admin@empresa.com"), follow_redirects=False)
+    assert listed.status_code == 200
+    assert all((item.get("role") or item.get("perfil")) == "viewer" for item in listed.json()["data"])
+
+    updated = client.put(
+        f"/api/usuarios/viewers/{payload['id']}",
+        json={"nome": "Viewer Editado", "role": "admin"},
+        headers=auth_headers("admin", "admin@empresa.com"),
+        follow_redirects=False,
+    )
+    assert updated.status_code == 200
+    assert updated.json()["data"]["nome"] == "Viewer Editado"
+    assert updated.json()["data"]["role"] == "viewer"
+
+    deleted = client.delete(
+        f"/api/usuarios/viewers/{payload['id']}",
+        headers=auth_headers("admin", "admin@empresa.com"),
+        follow_redirects=False,
+    )
+    assert deleted.status_code == 200
+
+
+def test_viewer_and_missing_token_cannot_manage_viewer_endpoints(client):
+    no_token = client.post(
+        "/api/usuarios/viewers",
+        json={"email": "no.token.viewer@empresa.com", "nome": "No Token", "senha": "Viewer@2026"},
+        follow_redirects=False,
+    )
+    assert no_token.status_code == 401
+
+    viewer_create = client.post(
+        "/api/usuarios/viewers",
+        json={"email": "blocked.viewer@empresa.com", "nome": "Blocked", "senha": "Viewer@2026"},
+        headers=auth_headers("viewer", "viewer1@empresa.com"),
+        follow_redirects=False,
+    )
+    assert viewer_create.status_code == 403
+
+    viewer_id = str(ObjectId())
+    app_module.db["usuarios"].insert_one(
+        {
+            "_id": ObjectId(viewer_id),
+            "email": "delete.blocked@empresa.com",
+            "nome": "Delete Blocked",
+            "role": "viewer",
+            "perfil": "viewer",
+            "senha_hash": "hash",
+        }
+    )
+    viewer_delete = client.delete(
+        f"/api/usuarios/viewers/{viewer_id}",
+        headers=auth_headers("viewer", "viewer1@empresa.com"),
+        follow_redirects=False,
+    )
+    assert viewer_delete.status_code == 403
+
+
+def test_last_admin_cannot_be_deleted_or_downgraded(client):
+    admin_id = str(ObjectId())
+    app_module.db["usuarios"].insert_one(
+        {
+            "_id": ObjectId(admin_id),
+            "email": "only.admin@empresa.com",
+            "nome": "Only Admin",
+            "role": "admin",
+            "perfil": "admin",
+            "senha_hash": "hash",
+        }
+    )
+
+    downgrade = client.put(
+        f"/api/usuarios/{admin_id}",
+        json={"role": "viewer"},
+        headers=auth_headers("admin", "only.admin@empresa.com"),
+        follow_redirects=False,
+    )
+    assert downgrade.status_code == 409
+
+    delete = client.delete(
+        f"/api/usuarios/{admin_id}",
+        headers=auth_headers("admin", "only.admin@empresa.com"),
+        follow_redirects=False,
+    )
+    assert delete.status_code == 409
+
+
+def test_viewer_endpoints_are_bearer_protected_in_openapi(client):
+    openapi = client.get("/openapi.json", follow_redirects=False).json()
+    assert openapi["paths"]["/api/usuarios/viewers"]["get"]["security"] == [{"HTTPBearer": []}]
+    assert openapi["paths"]["/api/usuarios/viewers"]["post"]["security"] == [{"HTTPBearer": []}]
+    assert openapi["paths"]["/api/usuarios/viewers/{item_id}"]["put"]["security"] == [{"HTTPBearer": []}]
+    assert openapi["paths"]["/api/usuarios/viewers/{item_id}"]["delete"]["security"] == [{"HTTPBearer": []}]
+
+
 def test_government_connectors_simulated_mode(monkeypatch):
     monkeypatch.delenv("ECAC_CLIENT_ID", raising=False)
     monkeypatch.delenv("ECAC_CLIENT_SECRET", raising=False)

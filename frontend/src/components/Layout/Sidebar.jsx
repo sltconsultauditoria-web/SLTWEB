@@ -36,6 +36,7 @@ const menuItems = [
   { icon: FileBarChart, label: 'Relatórios', path: '/relatorios' },
   { icon: UserCog, label: 'Usuários', path: '/usuarios', adminOnly: true },
   { icon: Settings, label: 'Configurações', path: '/configuracoes' },
+  { icon: UserCog, label: 'Viewers', path: '/configuracoes/usuarios-viewer', adminOnly: true },
 ];
 
 const Sidebar = () => {

@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react';
+import { Link } from 'react-router-dom';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -19,6 +20,7 @@ import {
   Users,
 } from 'lucide-react';
 import { useAuth } from '@/context/AuthContext';
+import { isAdminUser } from '@/lib/rbac';
 import api from '@/services/api';
 
 const channelOptions = [
@@ -48,6 +50,7 @@ const formatDateTime = (value) => {
 
 const Configuracoes = () => {
   const { user } = useAuth();
+  const isAdmin = isAdminUser(user);
   const [channels, setChannels] = useState([]);
   const [preference, setPreference] = useState(defaultPreference);
   const [notificationLogs, setNotificationLogs] = useState([]);
@@ -124,6 +127,9 @@ const Configuracoes = () => {
           <TabsTrigger value="perfil"><User className="h-4 w-4 mr-2" /> Perfil</TabsTrigger>
           <TabsTrigger value="notificacoes"><Bell className="h-4 w-4 mr-2" /> Notificacoes</TabsTrigger>
           <TabsTrigger value="seguranca"><Shield className="h-4 w-4 mr-2" /> Seguranca</TabsTrigger>
+          {isAdmin && (
+            <TabsTrigger value="usuarios-viewer"><Users className="h-4 w-4 mr-2" /> Usuarios Viewer</TabsTrigger>
+          )}
           <TabsTrigger value="aparencia"><Palette className="h-4 w-4 mr-2" /> Aparencia</TabsTrigger>
         </TabsList>
 
@@ -320,6 +326,26 @@ const Configuracoes = () => {
             </CardContent>
           </Card>
         </TabsContent>
+
+        {isAdmin && (
+          <TabsContent value="usuarios-viewer">
+            <Card>
+              <CardHeader>
+                <CardTitle>Gestao de Usuarios Viewer</CardTitle>
+                <CardDescription>Crie, edite e remova contas com acesso somente de visualizacao</CardDescription>
+              </CardHeader>
+              <CardContent className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
+                <div>
+                  <p className="font-medium">Administracao restrita</p>
+                  <p className="text-sm text-gray-500">A tela dedicada usa RBAC no frontend e endpoints Bearer protegidos no backend.</p>
+                </div>
+                <Button asChild className="bg-blue-900 hover:bg-blue-800">
+                  <Link to="/configuracoes/usuarios-viewer">Abrir Gestao de Viewers</Link>
+                </Button>
+              </CardContent>
+            </Card>
+          </TabsContent>
+        )}
 
         <TabsContent value="aparencia">
           <Card>

@@ -112,6 +112,28 @@ def test_notifications_websocket_uses_configured_render_url_only():
     assert "MAX_WEBSOCKET_FAILURES" in notifications
 
 
+def test_admin_viewer_management_frontend_contract():
+    app_js = read_text(FRONTEND / "src" / "App.js")
+    sidebar = read_text(FRONTEND / "src" / "components" / "Layout" / "Sidebar.jsx")
+    configuracoes = read_text(FRONTEND / "src" / "pages" / "Configuracoes.jsx")
+    page = read_text(FRONTEND / "src" / "pages" / "ConfiguracoesUsuariosViewer.jsx")
+
+    assert "ConfiguracoesUsuariosViewer" in app_js
+    assert 'path="/configuracoes/usuarios-viewer"' in app_js
+    assert "<AdminRoute>" in app_js
+    assert "'/configuracoes/usuarios-viewer'" in sidebar
+    assert "adminOnly: true" in sidebar
+    assert "isAdminUser(user)" in configuracoes
+    assert "Abrir Gestao de Viewers" in configuracoes
+    assert "api.get('/usuarios/viewers')" in page
+    assert "api.post('/usuarios/viewers'" in page
+    assert "api.put(`/usuarios/viewers/${selectedViewer.id}`" in page
+    assert "api.delete(`/usuarios/viewers/${selectedViewer.id}`" in page
+    assert "role: 'viewer'" in page
+    assert "setForm({ ...form, role" not in page
+    assert '<Navigate to="/dashboard" replace />' in page
+
+
 def test_404_fallback_source_exists():
     fallback = FRONTEND / "public" / "404.html"
     assert fallback.exists()

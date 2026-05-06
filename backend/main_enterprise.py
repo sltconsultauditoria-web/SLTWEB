@@ -1799,6 +1799,42 @@ def validate_user_role(role: Any) -> str:
     return normalized
 
 
+def is_admin_role(role: Any) -> bool:
+    return normalize_role(role) in {"admin", "super_admin"}
+
+
+def is_viewer_role(role: Any) -> bool:
+    return normalize_role(role) == "viewer"
+
+
+def count_admin_users() -> int:
+    count = 0
+    for item in db["usuarios"].find({}):
+        if is_admin_role(item.get("role") or item.get("perfil")):
+            count += 1
+    return count
+
+
+def find_usuario_by_id(item_id: str) -> dict[str, Any] | None:
+    return db["usuarios"].find_one(object_query(item_id))
+
+
+def ensure_not_last_admin_change(existing: dict[str, Any], next_role: Any | None = None, *, deleting: bool = False) -> None:
+    current_role = existing.get("role") or existing.get("perfil")
+    if not is_admin_role(current_role):
+        return
+
+    will_remain_admin = not deleting and (next_role is None or is_admin_role(next_role))
+    if will_remain_admin:
+        return
+
+    if count_admin_users() <= 1:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="Nao e permitido remover ou rebaixar o ultimo administrador do sistema",
+        )
+
+
 def build_user_document(payload: dict[str, Any], *, is_create: bool) -> dict[str, Any]:
     document = {key: value for key, value in payload.items() if value is not None}
     password = document.pop("password", None) or document.pop("senha", None)
@@ -2742,7 +2778,11 @@ def criar_usuario(payload: UsuarioCreateRequest, authorization: str = Depends(re
 @app.put("/api/usuarios/{item_id}")
 def atualizar_usuario(item_id: str, payload: UsuarioUpdateRequest, authorization: str = Depends(require_bearer_authorization)):
     require_admin(authorization)
+    existing = find_usuario_by_id(item_id)
+    if not existing:
+        raise HTTPException(status_code=404, detail="Registro nao encontrado")
     document = build_user_document(model_payload(payload), is_create=False)
+    ensure_not_last_admin_change(existing, document.get("role") or document.get("perfil"))
     data = update_item("usuarios", item_id, document)
     data = _sanitize_user(data)
     return envelope(data, **data)
@@ -2751,6 +2791,61 @@ def atualizar_usuario(item_id: str, payload: UsuarioUpdateRequest, authorization
 @app.delete("/api/usuarios/{item_id}")
 def excluir_usuario(item_id: str, authorization: str = Depends(require_bearer_authorization)):
     require_admin(authorization)
+    existing = find_usuario_by_id(item_id)
+    if not existing:
+        raise HTTPException(status_code=404, detail="Registro nao encontrado")
+    ensure_not_last_admin_change(existing, deleting=True)
+    return envelope(delete_item("usuarios", item_id))
+
+
+@app.get("/api/usuarios/viewers")
+def listar_viewers(authorization: str = Depends(require_bearer_authorization)):
+    require_admin(authorization)
+    data = [
+        _sanitize_user(item)
+        for item in db["usuarios"].find({})
+        if is_viewer_role(item.get("role") or item.get("perfil"))
+    ]
+    return envelope(data, total=len(data), usuarios=data, viewers=data)
+
+
+@app.post("/api/usuarios/viewers", status_code=status.HTTP_201_CREATED)
+def criar_viewer(payload: UsuarioCreateRequest, authorization: str = Depends(require_bearer_authorization)):
+    require_admin(authorization)
+    document = build_user_document(model_payload(payload), is_create=True)
+    document["role"] = "viewer"
+    document["perfil"] = "viewer"
+    if _find_auth_user(document["email"]):
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Usuario ja cadastrado")
+    data = create_item("usuarios", document)
+    data = _sanitize_user(data)
+    return envelope(data, **data)
+
+
+@app.put("/api/usuarios/viewers/{item_id}")
+def atualizar_viewer(item_id: str, payload: UsuarioUpdateRequest, authorization: str = Depends(require_bearer_authorization)):
+    require_admin(authorization)
+    existing = find_usuario_by_id(item_id)
+    if not existing:
+        raise HTTPException(status_code=404, detail="Registro nao encontrado")
+    if not is_viewer_role(existing.get("role") or existing.get("perfil")):
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Endpoint restrito a usuarios viewer")
+    document = build_user_document(model_payload(payload), is_create=False)
+    document["role"] = "viewer"
+    document["perfil"] = "viewer"
+    data = update_item("usuarios", item_id, document)
+    data = _sanitize_user(data)
+    return envelope(data, **data)
+
+
+@app.delete("/api/usuarios/viewers/{item_id}")
+def excluir_viewer(item_id: str, authorization: str = Depends(require_bearer_authorization)):
+    require_admin(authorization)
+    existing = find_usuario_by_id(item_id)
+    if not existing:
+        raise HTTPException(status_code=404, detail="Registro nao encontrado")
+    if not is_viewer_role(existing.get("role") or existing.get("perfil")):
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Endpoint restrito a usuarios viewer")
     return envelope(delete_item("usuarios", item_id))
 
 
