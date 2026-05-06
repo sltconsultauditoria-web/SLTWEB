@@ -160,7 +160,7 @@ def job_metrics() -> dict[str, Any]:
 
 
 def _use_redis_queue() -> bool:
-    enabled = str(os.environ.get("ASYNC_USE_REDIS", "1")).strip().lower() in {"1", "true", "yes", "on"}
+    enabled = str(os.environ.get("ASYNC_USE_REDIS", "0")).strip().lower() in {"1", "true", "yes", "on"}
     return bool(enabled and redis and Queue and os.environ.get("REDIS_URL"))
 
 

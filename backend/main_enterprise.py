@@ -1811,7 +1811,7 @@ def health():
         redis_error = None
 
     worker_config = {
-        "async_use_redis": str(os.environ.get("ASYNC_USE_REDIS", "1")).strip().lower() in {"1", "true", "yes", "on"},
+        "async_use_redis": str(os.environ.get("ASYNC_USE_REDIS", "0")).strip().lower() in {"1", "true", "yes", "on"},
         "redis_url_configured": bool(redis_url),
         "worker_poll_interval_seconds": os.environ.get("WORKER_POLL_INTERVAL_SECONDS", "1"),
     }
