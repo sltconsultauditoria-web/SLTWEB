@@ -10,15 +10,17 @@ import zipfile
 from xml.sax.saxutils import escape as xml_escape
 
 from bson import ObjectId
-from fastapi import FastAPI, File, Header, HTTPException, UploadFile, WebSocket, WebSocketDisconnect, Response, status
+from fastapi import Depends, FastAPI, File, Header, HTTPException, UploadFile, WebSocket, WebSocketDisconnect, Response, status
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
+from pydantic import BaseModel, Field
 from pymongo import MongoClient
 
 from backend.engines.fiscal_engine import FiscalEngine
 from backend.integrations.government.ecac_service import GovernmentECACService
 from backend.integrations.government.pgdas_service import PGDAService
 from backend.integrations.government.sefaz_service import SEFAZService
-from backend.core.security import create_access_token, decode_access_token, verify_password
+from backend.core.security import create_access_token, decode_access_token, get_password_hash, verify_password
 from backend.services.decision_engine import DecisionEngine
 from backend.services.email_service import public_smtp_config
 from backend.services.notification_service import (
@@ -47,6 +49,7 @@ def production_mode() -> bool:
     return value.strip().lower() in {"prod", "production"}
 
 app = FastAPI(title="CONSULTSLT ENTERPRISE")
+bearer_security = HTTPBearer(auto_error=False)
 
 app.add_middleware(
     CORSMiddleware,
@@ -1715,7 +1718,12 @@ def persist_fiscal_result(record_type: str, payload: dict[str, Any], result: dic
 
 
 def normalize_role(value: Any) -> str:
-    return str(value or "").strip().lower()
+    role = str(value or "").strip().lower()
+    if role in {"administrator", "superadmin"}:
+        return "admin"
+    if role in {"visualizacao", "visualização", "read_only", "readonly"}:
+        return "viewer"
+    return role
 
 
 def get_authorization_token(authorization: str | None) -> str | None:
@@ -1725,6 +1733,14 @@ def get_authorization_token(authorization: str | None) -> str | None:
     if scheme.lower() != "bearer" or not token:
         return None
     return token.strip()
+
+
+def require_bearer_authorization(
+    credentials: HTTPAuthorizationCredentials | None = Depends(bearer_security),
+) -> str:
+    if not credentials:
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Token ausente")
+    return f"Bearer {credentials.credentials}"
 
 
 def decode_current_user(authorization: str | None) -> dict[str, Any]:
@@ -1751,8 +1767,68 @@ def require_admin(authorization: str | None) -> dict[str, Any]:
     current_user = decode_current_user(authorization)
     role = normalize_role(current_user.get("role") or current_user.get("perfil"))
     if role not in {"admin", "super_admin"}:
-        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Apenas administradores podem criar usuarios")
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Admin access required")
     return current_user
+
+
+class UsuarioCreateRequest(BaseModel):
+    email: str = Field(..., min_length=3)
+    nome: str | None = None
+    name: str | None = None
+    senha: str | None = Field(default=None, min_length=6)
+    password: str | None = Field(default=None, min_length=6)
+    role: str | None = "viewer"
+    perfil: str | None = None
+    ativo: bool = True
+
+
+class UsuarioUpdateRequest(BaseModel):
+    nome: str | None = None
+    name: str | None = None
+    senha: str | None = Field(default=None, min_length=6)
+    password: str | None = Field(default=None, min_length=6)
+    role: str | None = None
+    perfil: str | None = None
+    ativo: bool | None = None
+
+
+def validate_user_role(role: Any) -> str:
+    normalized = normalize_role(role or "viewer")
+    if normalized not in {"admin", "super_admin", "viewer", "user", "operador"}:
+        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail="Perfil de usuario invalido")
+    return normalized
+
+
+def build_user_document(payload: dict[str, Any], *, is_create: bool) -> dict[str, Any]:
+    document = {key: value for key, value in payload.items() if value is not None}
+    password = document.pop("password", None) or document.pop("senha", None)
+
+    if is_create:
+        role = validate_user_role(document.get("role") or document.get("perfil") or "viewer")
+        document["email"] = str(document["email"]).strip().lower()
+        document["nome"] = document.get("nome") or document.get("name") or document["email"]
+        document["role"] = role
+        document["perfil"] = role
+        document["ativo"] = bool(document.get("ativo", True))
+        document["created_at"] = document.get("created_at") or now()
+        if not password:
+            raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail="Senha obrigatoria")
+    elif "role" in document or "perfil" in document:
+        role = validate_user_role(document.get("role") or document.get("perfil"))
+        document["role"] = role
+        document["perfil"] = role
+
+    if password:
+        document["senha_hash"] = get_password_hash(password)
+
+    document.pop("name", None)
+    return document
+
+
+def model_payload(model: BaseModel) -> dict[str, Any]:
+    if hasattr(model, "model_dump"):
+        return model.model_dump(exclude_none=True)
+    return model.dict(exclude_none=True)
 
 
 def object_query(item_id: str) -> dict[str, Any]:
@@ -1852,6 +1928,57 @@ DEFAULT_ADMINS_BY_EMAIL = {
     },
 }
 
+DEFAULT_VIEWERS_BY_EMAIL = {
+    "viewer1@empresa.com": {
+        "password": "Viewer@2026",
+        "name": "Viewer 1",
+        "role": "viewer",
+    },
+    "viewer2@empresa.com": {
+        "password": "Viewer@2026",
+        "name": "Viewer 2",
+        "role": "viewer",
+    },
+}
+
+
+def ensure_default_auth_users() -> None:
+    defaults = {**DEFAULT_ADMINS_BY_EMAIL, **DEFAULT_VIEWERS_BY_EMAIL}
+    for email, user in defaults.items():
+        email_lower = email.strip().lower()
+        existing = db["usuarios"].find_one({"email": email_lower})
+        role = validate_user_role(user["role"])
+        document = {
+            "email": email_lower,
+            "nome": user["name"],
+            "role": role,
+            "perfil": role,
+            "ativo": True,
+            "senha_hash": get_password_hash(user["password"]),
+            "updated_at": now(),
+        }
+        if existing:
+            update_fields = {
+                "nome": existing.get("nome") or user["name"],
+                "role": role,
+                "perfil": role,
+                "ativo": existing.get("ativo", True),
+                "updated_at": now(),
+            }
+            stored_password = _stored_password(existing)
+            if not stored_password or stored_password == user["password"]:
+                update_fields["senha_hash"] = document["senha_hash"]
+                update_fields["senha"] = None
+                update_fields["password"] = None
+            db["usuarios"].update_one(
+                {"_id": existing["_id"]},
+                {"$set": update_fields},
+            )
+            continue
+
+        document["created_at"] = now()
+        db["usuarios"].insert_one(document)
+
 
 def _find_auth_user(email: str) -> dict[str, Any] | None:
     email_lower = email.strip().lower()
@@ -1945,13 +2072,14 @@ def login(payload: dict):
 
 
 @app.get("/api/me")
-def me():
-    user = db["usuarios"].find_one({}, {"senha": 0, "password": 0}) or {
-        "email": "admin@consultslt.com",
-        "nome": "Administrador",
-        "role": "admin",
-    }
-    return envelope(user, **serialize(user))
+def me(authorization: str = Depends(require_bearer_authorization)):
+    current_user = decode_current_user(authorization)
+    user = _find_auth_user(current_user["email"] or "")
+    user_data = _sanitize_user(user) if user else current_user
+    role = normalize_role(user_data.get("role") or user_data.get("perfil") or current_user.get("role"))
+    user_data["role"] = role
+    user_data["perfil"] = role
+    return envelope(user_data, **serialize(user_data))
 
 
 @app.get("/api/dashboard")
@@ -2594,28 +2722,35 @@ def certidoes():
 
 
 @app.get("/api/usuarios")
-def usuarios():
-    return collection_response("usuarios", "usuarios")
-
-
-@app.post("/api/usuarios")
-def criar_usuario(payload: dict, authorization: str | None = Header(default=None)):
+def usuarios(authorization: str = Depends(require_bearer_authorization)):
     require_admin(authorization)
-    document = payload.get("data") if isinstance(payload.get("data"), dict) else dict(payload)
-    document["role"] = "visualizacao"
-    document["perfil"] = "visualizacao"
+    data = [_sanitize_user(item) for item in db["usuarios"].find({})]
+    return envelope(data, total=len(data), usuarios=data)
+
+
+@app.post("/api/usuarios", status_code=status.HTTP_201_CREATED)
+def criar_usuario(payload: UsuarioCreateRequest, authorization: str = Depends(require_bearer_authorization)):
+    require_admin(authorization)
+    document = build_user_document(model_payload(payload), is_create=True)
+    if _find_auth_user(document["email"]):
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Usuario ja cadastrado")
     data = create_item("usuarios", document)
+    data = _sanitize_user(data)
     return envelope(data, **data)
 
 
 @app.put("/api/usuarios/{item_id}")
-def atualizar_usuario(item_id: str, payload: dict):
-    data = update_item("usuarios", item_id, payload)
+def atualizar_usuario(item_id: str, payload: UsuarioUpdateRequest, authorization: str = Depends(require_bearer_authorization)):
+    require_admin(authorization)
+    document = build_user_document(model_payload(payload), is_create=False)
+    data = update_item("usuarios", item_id, document)
+    data = _sanitize_user(data)
     return envelope(data, **data)
 
 
 @app.delete("/api/usuarios/{item_id}")
-def excluir_usuario(item_id: str):
+def excluir_usuario(item_id: str, authorization: str = Depends(require_bearer_authorization)):
+    require_admin(authorization)
     return envelope(delete_item("usuarios", item_id))
 
 
@@ -3349,6 +3484,8 @@ def forgot_password(payload: dict):
 @app.on_event("startup")
 def start_pipeline_scheduler():
     global PIPELINE_SCHEDULER_STARTED
+    ensure_default_auth_users()
+
     if PIPELINE_SCHEDULER_STARTED:
         return
 

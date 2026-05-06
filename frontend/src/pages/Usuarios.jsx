@@ -1,4 +1,5 @@
 import { useState, useEffect } from 'react';
+import { Navigate } from 'react-router-dom';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -14,20 +15,12 @@ import {
 import {
   Dialog,
   DialogContent,
+  DialogDescription,
+  DialogFooter,
   DialogHeader,
   DialogTitle,
   DialogTrigger,
 } from '@/components/ui/dialog';
-import {
-  AlertDialog,
-  AlertDialogAction,
-  AlertDialogCancel,
-  AlertDialogContent,
-  AlertDialogDescription,
-  AlertDialogFooter,
-  AlertDialogHeader,
-  AlertDialogTitle,
-} from '@/components/ui/alert-dialog';
 import { 
   Users, 
   Plus, 
@@ -40,6 +33,7 @@ import {
   XCircle
 } from 'lucide-react';
 import { useAuth } from '@/context/AuthContext';
+import { isAdminUser } from '@/lib/rbac';
 
 const formatarData = (value) => {
   if (!value) return '-';
@@ -61,16 +55,20 @@ const Usuarios = () => {
     nome: '',
     email: '',
     senha: '',
-    perfil: 'visualizacao',
-    role: 'visualizacao',
+    perfil: 'viewer',
+    role: 'viewer',
     ativo: true
   });
 
-  const isAdmin = ['admin', 'super_admin'].includes(String(user?.role || user?.perfil || '').toLowerCase());
+  const isAdmin = isAdminUser(user);
 
   useEffect(() => {
+    if (!isAdmin) {
+      setLoading(false);
+      return;
+    }
     loadUsuarios();
-  }, []);
+  }, [isAdmin]);
 
   const loadUsuarios = async () => {
     try {
@@ -103,8 +101,8 @@ const Usuarios = () => {
         // Criar novo usuário
         const createData = {
           ...formData,
-          perfil: 'visualizacao',
-          role: 'visualizacao',
+          perfil: 'viewer',
+          role: 'viewer',
         };
         await api.post('/usuarios', createData);
       }
@@ -124,8 +122,8 @@ const Usuarios = () => {
       nome: usuario.nome,
       email: usuario.email,
       senha: '',
-      perfil: usuario.perfil || usuario.role || 'visualizacao',
-      role: usuario.role || usuario.perfil || 'visualizacao',
+      perfil: usuario.perfil || usuario.role || 'viewer',
+      role: usuario.role || usuario.perfil || 'viewer',
       ativo: usuario.ativo
     });
     setIsEditMode(true);
@@ -151,8 +149,8 @@ const Usuarios = () => {
       nome: '',
       email: '',
       senha: '',
-      perfil: 'visualizacao',
-      role: 'visualizacao',
+      perfil: 'viewer',
+      role: 'viewer',
       ativo: true
     });
     setIsEditMode(false);
@@ -167,6 +165,8 @@ const Usuarios = () => {
         return <Badge className="bg-blue-600">Admin</Badge>;
       case 'user':
         return <Badge variant="outline">Usuário</Badge>;
+      case 'viewer':
+        return <Badge variant="outline">Visualizacao</Badge>;
       case 'visualizacao':
         return <Badge variant="outline">Visualizacao</Badge>;
       default:
@@ -182,6 +182,8 @@ const Usuarios = () => {
         return 'Administrador';
       case 'user':
         return 'Usuário';
+      case 'viewer':
+        return 'Visualizacao';
       case 'visualizacao':
         return 'Visualizacao';
       default:
@@ -195,6 +197,10 @@ const Usuarios = () => {
         <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-900"></div>
       </div>
     );
+  }
+
+  if (!isAdmin) {
+    return <Navigate to="/dashboard" replace />;
   }
 
   return (
@@ -265,7 +271,7 @@ const Usuarios = () => {
                     <SelectValue />
                   </SelectTrigger>
                   <SelectContent>
-                    <SelectItem value="visualizacao">Visualizacao</SelectItem>
+                    <SelectItem value="viewer">Visualizacao</SelectItem>
                     <SelectItem value="user">Usuário</SelectItem>
                     <SelectItem value="admin">Administrador</SelectItem>
                     <SelectItem value="super_admin">Super Administrador</SelectItem>
@@ -383,26 +389,28 @@ const Usuarios = () => {
                       Criado em: {formatarData(usuario.created_at)}
                     </p>
                   </div>
-                  <div className="flex gap-2">
-                    <Button 
-                      variant="outline" 
-                      size="sm"
-                      onClick={() => handleEdit(usuario)}
-                    >
-                      <Edit className="h-4 w-4" />
-                    </Button>
-                    <Button 
-                      variant="outline" 
-                      size="sm"
-                      className="text-red-600 hover:text-red-700"
-                      onClick={() => {
-                        setUsuarioToDelete(usuario);
-                        setDeleteDialogOpen(true);
-                      }}
-                    >
-                      <Trash2 className="h-4 w-4" />
-                    </Button>
-                  </div>
+                  {isAdmin && (
+                    <div className="flex gap-2">
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={() => handleEdit(usuario)}
+                      >
+                        <Edit className="h-4 w-4" />
+                      </Button>
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        className="text-red-600 hover:text-red-700"
+                        onClick={() => {
+                          setUsuarioToDelete(usuario);
+                          setDeleteDialogOpen(true);
+                        }}
+                      >
+                        <Trash2 className="h-4 w-4" />
+                      </Button>
+                    </div>
+                  )}
                 </div>
               ))
             )}
@@ -411,23 +419,23 @@ const Usuarios = () => {
       </Card>
 
       {/* Dialog de Confirmação de Exclusão */}
-      <AlertDialog open={deleteDialogOpen} onOpenChange={setDeleteDialogOpen}>
-        <AlertDialogContent>
-          <AlertDialogHeader>
-            <AlertDialogTitle>Confirmar Exclusão</AlertDialogTitle>
-            <AlertDialogDescription>
+      <Dialog open={deleteDialogOpen} onOpenChange={setDeleteDialogOpen}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Confirmar Exclusão</DialogTitle>
+            <DialogDescription>
               Tem certeza que deseja excluir o usuário <strong>{usuarioToDelete?.nome}</strong>?
               Esta ação não pode ser desfeita.
-            </AlertDialogDescription>
-          </AlertDialogHeader>
-          <AlertDialogFooter>
-            <AlertDialogCancel>Cancelar</AlertDialogCancel>
-            <AlertDialogAction onClick={handleDelete} className="bg-red-600 hover:bg-red-700">
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setDeleteDialogOpen(false)}>Cancelar</Button>
+            <Button onClick={handleDelete} className="bg-red-600 hover:bg-red-700">
               Excluir
-            </AlertDialogAction>
-          </AlertDialogFooter>
-        </AlertDialogContent>
-      </AlertDialog>
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 };

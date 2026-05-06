@@ -1,6 +1,7 @@
 import "@/App.css";
 import { BrowserRouter, Routes, Route, Navigate } from "react-router-dom";
-import { AuthProvider } from "@/context/AuthContext";
+import { AuthProvider, useAuth } from "@/context/AuthContext";
+import { isAdminUser } from "@/lib/rbac";
 import LoginPage from "@/pages/LoginPage";
 import ForgotPasswordPage from "@/pages/ForgotPasswordPage";
 import MainLayout from "@/components/Layout/MainLayout";
@@ -18,6 +19,12 @@ import Fiscal from "@/pages/Fiscal";
 import Auditoria from "@/pages/Auditoria";
 import OCR from "@/pages/OCR";
 import TimelineEmpresa from "@/pages/TimelineEmpresa";
+import Usuarios from "@/pages/Usuarios";
+
+const AdminRoute = ({ children }) => {
+  const { user } = useAuth();
+  return isAdminUser(user) ? children : <Navigate to="/dashboard" replace />;
+};
 
 function App() {
   return (
@@ -46,6 +53,14 @@ function App() {
               <Route path="/fiscal" element={<Fiscal />} />
               <Route path="/auditoria" element={<Auditoria />} />
               <Route path="/ocr" element={<OCR />} />
+              <Route
+                path="/usuarios"
+                element={(
+                  <AdminRoute>
+                    <Usuarios />
+                  </AdminRoute>
+                )}
+              />
             </Route>
           </Routes>
         </BrowserRouter>

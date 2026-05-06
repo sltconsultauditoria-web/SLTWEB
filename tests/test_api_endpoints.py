@@ -251,6 +251,20 @@ def wait_for_job(client, job_id, timeout=5.0):
     return last_payload
 
 
+def auth_headers(role="admin", email=None):
+    email = email or f"{role}@empresa.com"
+    token = app_module.create_access_token(
+        {
+            "sub": email,
+            "email": email,
+            "role": role,
+            "perfil": role,
+            "name": role.title(),
+        }
+    )
+    return {"Authorization": f"Bearer {token}"}
+
+
 @pytest.mark.parametrize(
     "method,path,kwargs",
     [
@@ -655,6 +669,89 @@ def test_monetization_and_rbac_endpoints(client):
     roles = client.get("/api/rbac/roles-permissions", follow_redirects=False)
     assert roles.status_code == 200
     assert len(roles.json()["data"]) >= 3
+
+
+def test_me_requires_jwt_and_returns_role(client):
+    missing = client.get("/api/me", follow_redirects=False)
+    assert missing.status_code == 401
+
+    response = client.get("/api/me", headers=auth_headers("admin", "admin@empresa.com"), follow_redirects=False)
+    assert response.status_code == 200
+    payload = response.json()["data"]
+    assert payload["email"] == "admin@empresa.com"
+    assert payload["role"] == "admin"
+    assert payload["perfil"] == "admin"
+
+
+def test_admin_can_create_and_delete_usuario(client):
+    created = client.post(
+        "/api/usuarios",
+        json={"email": "novo.viewer@empresa.com", "nome": "Novo Viewer", "senha": "Viewer@2026", "role": "viewer"},
+        headers=auth_headers("admin", "admin@empresa.com"),
+        follow_redirects=False,
+    )
+    assert created.status_code == 201, created.text
+    payload = created.json()["data"]
+    assert payload["email"] == "novo.viewer@empresa.com"
+    assert payload["role"] == "viewer"
+    assert payload["perfil"] == "viewer"
+    assert "senha" not in payload
+    assert "password" not in payload
+    assert "senha_hash" not in payload
+    assert "senha_hash" in app_module.db["usuarios"].find_one({"email": "novo.viewer@empresa.com"})
+
+    deleted = client.delete(
+        f"/api/usuarios/{payload['id']}",
+        headers=auth_headers("admin", "admin@empresa.com"),
+        follow_redirects=False,
+    )
+    assert deleted.status_code == 200
+
+
+def test_viewer_cannot_manage_usuarios(client):
+    existing_id = str(ObjectId())
+    app_module.db["usuarios"].insert_one(
+        {
+            "_id": ObjectId(existing_id),
+            "email": "target@empresa.com",
+            "nome": "Target",
+            "role": "viewer",
+            "perfil": "viewer",
+            "senha_hash": "hash",
+        }
+    )
+
+    create_response = client.post(
+        "/api/usuarios",
+        json={"email": "blocked@empresa.com", "nome": "Blocked", "senha": "Viewer@2026"},
+        headers=auth_headers("viewer", "viewer1@empresa.com"),
+        follow_redirects=False,
+    )
+    assert create_response.status_code == 403
+
+    delete_response = client.delete(
+        f"/api/usuarios/{existing_id}",
+        headers=auth_headers("viewer", "viewer1@empresa.com"),
+        follow_redirects=False,
+    )
+    assert delete_response.status_code == 403
+
+
+def test_usuario_create_requires_token_and_valid_payload(client):
+    no_token = client.post(
+        "/api/usuarios",
+        json={"email": "sem.token@empresa.com", "nome": "Sem Token", "senha": "Viewer@2026"},
+        follow_redirects=False,
+    )
+    assert no_token.status_code == 401
+
+    invalid_payload = client.post(
+        "/api/usuarios",
+        json={"nome": "Payload Invalido", "senha": "Viewer@2026"},
+        headers=auth_headers("admin", "admin@empresa.com"),
+        follow_redirects=False,
+    )
+    assert invalid_payload.status_code == 422
 
 
 def test_government_connectors_simulated_mode(monkeypatch):

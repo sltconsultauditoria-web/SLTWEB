@@ -1,10 +1,10 @@
 import { Link, useLocation } from 'react-router-dom';
-import { 
-  LayoutDashboard, 
-  Building2, 
-  FileText, 
-  Calendar, 
-  Bell, 
+import {
+  LayoutDashboard,
+  Building2,
+  FileText,
+  Calendar,
+  Bell,
   Settings,
   LogOut,
   ChevronLeft,
@@ -14,10 +14,12 @@ import {
   Bot,
   Calculator,
   Shield,
-  ScanLine
+  ScanLine,
+  UserCog,
 } from 'lucide-react';
 import { useState } from 'react';
 import { useAuth } from '@/context/AuthContext';
+import { isAdminUser } from '@/lib/rbac';
 import { cn } from '@/lib/utils';
 
 const menuItems = [
@@ -32,6 +34,7 @@ const menuItems = [
   { icon: Bot, label: 'Robôs', path: '/robos' },
   { icon: Bell, label: 'Alertas', path: '/alertas' },
   { icon: FileBarChart, label: 'Relatórios', path: '/relatorios' },
+  { icon: UserCog, label: 'Usuários', path: '/usuarios', adminOnly: true },
   { icon: Settings, label: 'Configurações', path: '/configuracoes' },
 ];
 
@@ -39,16 +42,17 @@ const Sidebar = () => {
   const [collapsed, setCollapsed] = useState(false);
   const location = useLocation();
   const { logout, user } = useAuth();
+  const isAdmin = isAdminUser(user);
+  const visibleMenuItems = menuItems.filter((item) => !item.adminOnly || isAdmin);
 
   return (
-    <aside 
+    <aside
       className={cn(
-        "h-screen bg-blue-900 text-white flex flex-col transition-all duration-300 shrink-0 overflow-y-auto",
-        collapsed ? "w-16" : "w-64"
+        'h-screen bg-blue-900 text-white flex flex-col transition-all duration-300 shrink-0 overflow-y-auto',
+        collapsed ? 'w-16' : 'w-64'
       )}
       data-testid="sidebar"
     >
-      {/* Header */}
       <div className="p-4 border-b border-blue-800 flex items-center justify-between">
         {!collapsed && (
           <div>
@@ -65,22 +69,21 @@ const Sidebar = () => {
         </button>
       </div>
 
-      {/* Menu */}
       <nav className="flex-1 py-4">
-        {menuItems.map((item) => {
+        {visibleMenuItems.map((item) => {
           const Icon = item.icon;
           const isActive = location.pathname === item.path;
-          
+
           return (
             <Link
               key={item.path}
               to={item.path}
               className={cn(
-                "flex items-center px-4 py-3 transition-colors",
-                isActive 
-                  ? "bg-blue-800 border-r-4 border-white" 
-                  : "hover:bg-blue-800/50",
-                collapsed ? "justify-center" : "gap-3"
+                'flex items-center px-4 py-3 transition-colors',
+                isActive
+                  ? 'bg-blue-800 border-r-4 border-white'
+                  : 'hover:bg-blue-800/50',
+                collapsed ? 'justify-center' : 'gap-3'
               )}
               data-testid={`menu-${item.label.toLowerCase()}`}
               title={collapsed ? item.label : undefined}
@@ -92,7 +95,6 @@ const Sidebar = () => {
         })}
       </nav>
 
-      {/* User & Logout */}
       <div className="border-t border-blue-800 p-4">
         {!collapsed && user && (
           <div className="mb-3">
@@ -103,11 +105,11 @@ const Sidebar = () => {
         <button
           onClick={logout}
           className={cn(
-            "flex items-center text-red-300 hover:text-red-200 hover:bg-blue-800 rounded p-2 w-full transition-colors",
-            collapsed ? "justify-center" : "gap-2"
+            'flex items-center text-red-300 hover:text-red-200 hover:bg-blue-800 rounded p-2 w-full transition-colors',
+            collapsed ? 'justify-center' : 'gap-2'
           )}
           data-testid="logout-button"
-          title={collapsed ? "Sair" : undefined}
+          title={collapsed ? 'Sair' : undefined}
         >
           <LogOut size={20} />
           {!collapsed && <span>Sair</span>}
