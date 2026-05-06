@@ -31,6 +31,7 @@ jobs:
         run: |
           cd frontend
           REACT_APP_API_URL=https://sltweb.onrender.com/api \
+          REACT_APP_WS_URL=wss://sltweb.onrender.com/ws/notificacoes \
           PUBLIC_URL=/SLTWEB \
           npm run build
 

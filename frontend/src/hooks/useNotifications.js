@@ -20,6 +20,12 @@ let pollTimer = null;
 let reconnectTimer = null;
 let visibilityHandler = null;
 let reconnectDelay = 1000;
+let websocketFailures = 0;
+let websocketDisabled = false;
+let websocketWarningLogged = false;
+
+const WS_URL = process.env.REACT_APP_WS_URL;
+const MAX_WEBSOCKET_FAILURES = 3;
 
 const emit = () => {
   for (const listener of listeners) {
@@ -76,6 +82,9 @@ const resetConnectionState = () => {
   cleanupSocket();
   started = false;
   reconnectDelay = 1000;
+  websocketFailures = 0;
+  websocketDisabled = false;
+  websocketWarningLogged = false;
   setState((current) => ({
     ...current,
     connected: false,
@@ -113,13 +122,23 @@ const refreshAlertas = async () => {
 };
 
 const getWebSocketUrl = () => {
-  if (typeof window === 'undefined') return null;
-  const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-  return `${protocol}//${window.location.host}/ws/notificacoes`;
+  return WS_URL || null;
+};
+
+const warnWebSocketUnavailable = (message) => {
+  if (websocketWarningLogged) return;
+  websocketWarningLogged = true;
+  console.warn(`[notifications] ${message}`);
 };
 
 const scheduleReconnect = () => {
-  if (typeof window === 'undefined' || reconnectTimer) return;
+  if (typeof window === 'undefined' || reconnectTimer || websocketDisabled) return;
+  if (websocketFailures >= MAX_WEBSOCKET_FAILURES) {
+    websocketDisabled = true;
+    warnWebSocketUnavailable('WebSocket indisponivel; usando polling de alertas.');
+    return;
+  }
+
   reconnectTimer = window.setTimeout(() => {
     reconnectTimer = null;
     connectWebSocket();
@@ -134,13 +153,18 @@ const connectWebSocket = () => {
   }
 
   const url = getWebSocketUrl();
-  if (!url) return;
+  if (!url) {
+    websocketDisabled = true;
+    warnWebSocketUnavailable('REACT_APP_WS_URL nao configurado; usando polling de alertas.');
+    return;
+  }
 
   try {
     socket = new WebSocket(url);
 
     socket.onopen = () => {
       reconnectDelay = 1000;
+      websocketFailures = 0;
       setState((current) => ({
         ...current,
         connected: true,
@@ -176,10 +200,12 @@ const connectWebSocket = () => {
         connected: false,
       }));
       socket = null;
+      websocketFailures += 1;
       scheduleReconnect();
     };
   } catch (error) {
     socket = null;
+    websocketFailures += 1;
     scheduleReconnect();
   }
 };
@@ -197,7 +223,7 @@ const ensureStarted = () => {
   visibilityHandler = () => {
     if (document.visibilityState === 'visible') {
       refreshAlertas();
-      if (!socket || socket.readyState === WebSocket.CLOSED) {
+      if (!websocketDisabled && (!socket || socket.readyState === WebSocket.CLOSED)) {
         connectWebSocket();
       }
     }

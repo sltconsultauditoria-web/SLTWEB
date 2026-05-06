@@ -95,6 +95,21 @@ def test_frontend_pages_workflow_has_required_controls():
     assert "publish_dir: ./frontend/build" in workflow
     assert "publish_branch: gh-pages" in workflow
     assert "force_orphan: true" in workflow
+    assert "REACT_APP_WS_URL=wss://sltweb.onrender.com/ws/notificacoes \\" in workflow
+
+
+def test_notifications_websocket_uses_configured_render_url_only():
+    notifications = read_text(FRONTEND / "src" / "hooks" / "useNotifications.js")
+
+    assert "process.env.REACT_APP_WS_URL" in notifications
+    assert "window.location.host" not in notifications
+    assert "window.location.protocol" not in notifications
+    assert "/ws/notificacoes" not in notifications.replace(
+        "REACT_APP_WS_URL=wss://sltweb.onrender.com/ws/notificacoes", ""
+    )
+    assert "REACT_APP_WS_URL nao configurado; usando polling de alertas." in notifications
+    assert "WebSocket indisponivel; usando polling de alertas." in notifications
+    assert "MAX_WEBSOCKET_FAILURES" in notifications
 
 
 def test_404_fallback_source_exists():
