@@ -3036,29 +3036,6 @@ def criar_viewer(payload: UsuarioCreateRequest, authorization: str = Depends(req
     return envelope(data, **data)
 
 
-@app.put("/api/usuarios/{item_id}")
-def atualizar_usuario(item_id: str, payload: UsuarioUpdateRequest, authorization: str = Depends(require_bearer_authorization)):
-    require_admin(authorization)
-    existing = find_usuario_by_id(item_id)
-    if not existing:
-        raise HTTPException(status_code=404, detail="Registro nao encontrado")
-    document = build_user_document(model_payload(payload), is_create=False)
-    ensure_not_last_admin_change(existing, document.get("role") or document.get("perfil"))
-    data = update_item("usuarios", item_id, document)
-    data = _sanitize_user(data)
-    return envelope(data, **data)
-
-
-@app.delete("/api/usuarios/{item_id}")
-def excluir_usuario(item_id: str, authorization: str = Depends(require_bearer_authorization)):
-    require_admin(authorization)
-    existing = find_usuario_by_id(item_id)
-    if not existing:
-        raise HTTPException(status_code=404, detail="Registro nao encontrado")
-    ensure_not_last_admin_change(existing, deleting=True)
-    return envelope(delete_item("usuarios", item_id))
-
-
 @app.put("/api/usuarios/viewers/{item_id}")
 def atualizar_viewer(item_id: str, payload: UsuarioUpdateRequest, authorization: str = Depends(require_bearer_authorization)):
     require_admin(authorization)
@@ -3083,6 +3060,29 @@ def excluir_viewer(item_id: str, authorization: str = Depends(require_bearer_aut
         raise HTTPException(status_code=404, detail="Registro nao encontrado")
     if not is_viewer_role(existing.get("role") or existing.get("perfil")):
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Endpoint restrito a usuarios viewer")
+    return envelope(delete_item("usuarios", item_id))
+
+
+@app.put("/api/usuarios/{item_id}")
+def atualizar_usuario(item_id: str, payload: UsuarioUpdateRequest, authorization: str = Depends(require_bearer_authorization)):
+    require_admin(authorization)
+    existing = find_usuario_by_id(item_id)
+    if not existing:
+        raise HTTPException(status_code=404, detail="Registro nao encontrado")
+    document = build_user_document(model_payload(payload), is_create=False)
+    ensure_not_last_admin_change(existing, document.get("role") or document.get("perfil"))
+    data = update_item("usuarios", item_id, document)
+    data = _sanitize_user(data)
+    return envelope(data, **data)
+
+
+@app.delete("/api/usuarios/{item_id}")
+def excluir_usuario(item_id: str, authorization: str = Depends(require_bearer_authorization)):
+    require_admin(authorization)
+    existing = find_usuario_by_id(item_id)
+    if not existing:
+        raise HTTPException(status_code=404, detail="Registro nao encontrado")
+    ensure_not_last_admin_change(existing, deleting=True)
     return envelope(delete_item("usuarios", item_id))
 
 
