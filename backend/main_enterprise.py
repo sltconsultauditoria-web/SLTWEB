@@ -4,6 +4,7 @@ from datetime import date, datetime, timedelta
 from io import BytesIO
 import os
 import re
+import tempfile
 import threading
 import time
 from typing import Any
@@ -11,7 +12,7 @@ import zipfile
 from xml.sax.saxutils import escape as xml_escape
 
 from bson import ObjectId
-from fastapi import Depends, FastAPI, File, Header, HTTPException, UploadFile, WebSocket, WebSocketDisconnect, Response, status
+from fastapi import Depends, FastAPI, File, Form, Header, HTTPException, UploadFile, WebSocket, WebSocketDisconnect, Response, status
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from pydantic import BaseModel, Field
@@ -26,6 +27,7 @@ from backend.core.security import create_access_token, decode_access_token, get_
 from backend.seeds.seed_obrigacoes_acessorias import ensure_obrigacoes_indexes, seed_obrigacoes_acessorias, sync_obrigacoes_for_all_empresas, sync_obrigacoes_for_empresa
 from backend.services.prazos_obrigacoes_service import calcular_status, calcular_vencimento, gerar_alertas_vencimento, is_obrigacao_aplicavel
 from backend.services.decision_engine import DecisionEngine
+from backend.services.auditoria_service import AuditoriaService
 from backend.services.email_service import public_smtp_config
 from backend.services.notification_service import (
     get_notification_channels,
@@ -2793,6 +2795,87 @@ def criar_documento(payload: dict):
 @app.delete("/api/documentos/{item_id}")
 def excluir_documento(item_id: str):
     return envelope(delete_document("documentos", item_id))
+
+
+@app.get("/api/documentos/{item_id}/download")
+def download_documento(item_id: str, authorization: str = Depends(require_bearer_authorization)):
+    require_integration_access(authorization)
+    documento = db.documentos.find_one({"id": item_id}) or db.documentos.find_one(object_query(item_id))
+    if not documento:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Documento nao encontrado")
+
+    caminho_arquivo = documento.get("caminho_arquivo")
+    if not caminho_arquivo or not os.path.exists(caminho_arquivo):
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Arquivo do documento nao disponivel")
+
+    with open(caminho_arquivo, "rb") as arquivo:
+        content = arquivo.read()
+
+    filename = documento.get("nome_arquivo") or documento.get("nome") or f"{item_id}.pdf"
+    content_type = documento.get("content_type") or documento.get("tipo") or "application/octet-stream"
+    headers = {"Content-Disposition": f'attachment; filename="{filename}"'}
+    return Response(content=content, media_type=content_type, headers=headers)
+
+
+@app.get("/api/auditoria")
+async def listar_auditoria(authorization: str = Depends(require_bearer_authorization)):
+    require_integration_access(authorization)
+    cursor = db.auditorias.find({}, {"_id": 0}).sort("created_at", -1).limit(50)
+    auditorias = cursor.to_list(length=50)
+    if asyncio.iscoroutine(auditorias) or hasattr(auditorias, "__await__"):
+        auditorias = await auditorias
+    auditorias = serialize(auditorias or [])
+    return envelope(auditorias, total=len(auditorias), auditorias=auditorias)
+
+
+@app.get("/api/auditoria/estatisticas")
+async def auditoria_estatisticas(authorization: str = Depends(require_bearer_authorization)):
+    require_integration_access(authorization)
+    service = AuditoriaService(db)
+    stats = await service.obter_estatisticas_conformidade()
+    return envelope(stats, **stats)
+
+
+@app.get("/api/auditoria/{item_id}")
+async def obter_auditoria(item_id: str, authorization: str = Depends(require_bearer_authorization)):
+    require_integration_access(authorization)
+    auditoria = db.auditorias.find_one({"id": item_id}, {"_id": 0}) or db.auditorias.find_one(object_query(item_id), {"_id": 0})
+    if asyncio.iscoroutine(auditoria) or hasattr(auditoria, "__await__"):
+        auditoria = await auditoria
+    if not auditoria:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Auditoria nao encontrada")
+    auditoria = serialize(auditoria)
+    return envelope(auditoria, **auditoria)
+
+
+@app.post("/api/auditoria/executar")
+async def executar_auditoria(
+    cnpj: str = Form(...),
+    periodo: str = Form(...),
+    tipo: str = Form(...),
+    arquivo: UploadFile = File(...),
+    authorization: str = Depends(require_bearer_authorization),
+):
+    require_integration_admin_access(authorization)
+    service = AuditoriaService(db)
+    raw = await arquivo.read()
+    suffix = os.path.splitext(arquivo.filename or "auditoria.txt")[1] or ".txt"
+    with tempfile.NamedTemporaryFile(delete=False, suffix=suffix) as tmp:
+        tmp.write(raw)
+        tmp_path = tmp.name
+    try:
+        resultado = await service.executar_auditoria_sped(
+            cnpj=cnpj,
+            periodo=periodo,
+            tipo=tipo,
+            arquivo_path=tmp_path,
+        )
+        return envelope(resultado, **resultado)
+    finally:
+        try:
+            os.unlink(tmp_path)
+        except OSError:
+            pass
 
 
 def normalize_ocr_status(value: Any) -> str:

@@ -1,5 +1,7 @@
 from copy import deepcopy
+import tempfile
 import time
+from pathlib import Path
 
 import pytest
 from bson import ObjectId
@@ -101,6 +103,32 @@ class FakeCollection:
     def count_documents(self, query=None):
         return sum(1 for item in self.items if _matches(item, query or {}))
 
+    def aggregate(self, pipeline):
+        filtered = [deepcopy(item) for item in self.items]
+        for stage in pipeline or []:
+            if "$match" in stage:
+                filtered = [item for item in filtered if _matches(item, stage["$match"])]
+            if "$group" in stage:
+                group = stage["$group"]
+                total = len(filtered)
+                score_values = [item.get("score_conformidade", 0) for item in filtered]
+                criticos = [item.get("por_severidade", {}).get("critico", 0) for item in filtered]
+                avisos = [item.get("por_severidade", {}).get("aviso", 0) for item in filtered]
+                nao_conformidades = [item.get("total_nao_conformidades", 0) for item in filtered]
+                averaged = sum(score_values) / total if total else 0
+                return FakeCursor(
+                    [
+                        {
+                            "total_auditorias": total,
+                            "score_medio": averaged,
+                            "total_nao_conformidades": sum(nao_conformidades),
+                            "criticos": sum(criticos),
+                            "avisos": sum(avisos),
+                        }
+                    ]
+                )
+        return FakeCursor(filtered)
+
     def insert_one(self, document):
         stored = deepcopy(document)
         stored.setdefault("_id", ObjectId())
@@ -164,8 +192,16 @@ class FakeDB:
             self._collections[item] = FakeCollection([])
         return self._collections[item]
 
+    def __getattr__(self, item):
+        if item.startswith("_"):
+            raise AttributeError(item)
+        return self.__getitem__(item)
+
 
 def make_db():
+    documento_teste_path = Path(tempfile.gettempdir()) / "sltweb-documento-123.pdf"
+    if not documento_teste_path.exists():
+        documento_teste_path.write_bytes(b"%PDF-1.4\n% Documento de teste\n")
     return FakeDB(
         {
         "empresas": FakeCollection(
@@ -176,7 +212,7 @@ def make_db():
         ),
         "documentos": FakeCollection(
             [
-                {"_id": ObjectId(), "nome": "Documento 1", "status": "processado", "created_at": "2026-05-01T10:00:00"},
+                {"_id": ObjectId(), "id": "123", "nome_arquivo": "Documento 1.pdf", "status": "processado", "created_at": "2026-05-01T10:00:00", "caminho_arquivo": str(documento_teste_path), "tipo": "application/pdf", "content_type": "application/pdf"},
             ]
         ),
         "guias": FakeCollection([{"_id": ObjectId(), "status": "concluida"}]),
@@ -193,7 +229,9 @@ def make_db():
                 {"_id": ObjectId(), "titulo": "Resolvido", "prioridade": "media", "status": "resolvido", "lido": True, "resolvido": True, "created_at": "2026-05-01T11:00:00"},
             ]
         ),
-        "auditorias": FakeCollection([{"_id": ObjectId(), "score": 95, "created_at": "2026-05-01T12:00:00"}]),
+        "auditorias": FakeCollection([
+            {"_id": ObjectId(), "id": "123", "score_conformidade": 95, "total_nao_conformidades": 0, "por_severidade": {"critico": 0, "aviso": 0}, "created_at": "2026-05-01T12:00:00"}
+        ]),
         "ocr_documentos": FakeCollection(
             [
                 {"_id": ObjectId(), "status": "processado"},
@@ -282,8 +320,10 @@ def auth_headers(role="admin", email=None):
         ("GET", "/api/obrigacoes/dashboard", {"headers": auth_headers("admin", "admin@empresa.com")}),
         ("GET", "/api/obrigacoes/calendario", {"headers": auth_headers("admin", "admin@empresa.com")}),
         ("GET", "/api/alertas", {}),
-        ("GET", "/api/auditoria", {}),
-        ("GET", "/api/auditoria/estatisticas", {}),
+        ("GET", "/api/auditoria", {"headers": auth_headers("admin", "admin@empresa.com")}),
+        ("GET", "/api/auditoria/estatisticas", {"headers": auth_headers("admin", "admin@empresa.com")}),
+        ("GET", "/api/auditoria/123", {"headers": auth_headers("admin", "admin@empresa.com")}),
+        ("GET", "/api/documentos/123/download", {"headers": auth_headers("admin", "admin@empresa.com")}),
         ("GET", "/api/ocr/documentos", {}),
         ("GET", "/api/ocr/estatisticas", {}),
         ("GET", "/api/ocr/tipos-suportados", {}),
@@ -1167,6 +1207,53 @@ def test_viewer_endpoints_are_bearer_protected_in_openapi(client):
     assert openapi["paths"]["/api/usuarios/viewers"]["post"]["security"] == [{"HTTPBearer": []}]
     assert openapi["paths"]["/api/usuarios/viewers/{item_id}"]["put"]["security"] == [{"HTTPBearer": []}]
     assert openapi["paths"]["/api/usuarios/viewers/{item_id}"]["delete"]["security"] == [{"HTTPBearer": []}]
+    assert "/api/auditoria" in openapi["paths"]
+    assert "/api/auditoria/estatisticas" in openapi["paths"]
+    assert openapi["paths"]["/api/auditoria/executar"]["post"]["security"] == [{"HTTPBearer": []}]
+    assert "/api/auditoria/{item_id}" in openapi["paths"]
+    assert openapi["paths"]["/api/documentos/{item_id}/download"]["get"]["security"] == [{"HTTPBearer": []}]
+
+
+def test_auditoria_execute_and_document_download_work(client):
+    base_tmp = Path(tempfile.gettempdir()) / "sltweb-tests"
+    base_tmp.mkdir(parents=True, exist_ok=True)
+
+    arquivo = base_tmp / "sped_teste.txt"
+    arquivo.write_text("0000|1|SPED FISCAL|20260501|20260531|Empresa Teste|12345678000100\n9999|1", encoding="utf-8")
+
+    with arquivo.open("rb") as handle:
+        response = client.post(
+            "/api/auditoria/executar",
+            data={"cnpj": "12345678000100", "periodo": "2026-05", "tipo": "sped_fiscal"},
+            files={"arquivo": (arquivo.name, handle, "text/plain")},
+            headers=auth_headers("admin", "admin@empresa.com"),
+            follow_redirects=False,
+        )
+    assert response.status_code == 200, response.text
+    payload = response.json()["data"]
+    assert payload["id"]
+    assert "score_conformidade" in payload
+
+    caminho = base_tmp / "documento_teste.pdf"
+    caminho.write_bytes(b"%PDF-1.4\n% Fake PDF\n")
+    doc_id = str(ObjectId())
+    app_module.db["documentos"].insert_one(
+        {
+            "_id": ObjectId(doc_id),
+            "id": doc_id,
+            "nome_arquivo": "documento_teste.pdf",
+            "tipo": "application/pdf",
+            "status": "processado",
+            "caminho_arquivo": str(caminho),
+        }
+    )
+    download = client.get(
+        f"/api/documentos/{doc_id}/download",
+        headers=auth_headers("admin", "admin@empresa.com"),
+        follow_redirects=False,
+    )
+    assert download.status_code == 200
+    assert download.headers["content-type"].startswith("application/pdf")
 
 
 def test_government_connectors_simulated_mode(monkeypatch):

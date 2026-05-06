@@ -4,13 +4,14 @@ Orquestra auditorias SPED e cruzamentos fiscais
 """
 
 import uuid
+import inspect
 from datetime import datetime
 from typing import Dict, Any, List, Optional
 import logging
 
 from motor.motor_asyncio import AsyncIOMotorDatabase
 
-from engines.sped_engine import SPEDEngine, TipoAuditoria, NaoConformidade
+from backend.engines.sped_engine import SPEDEngine, TipoAuditoria, NaoConformidade
 
 logger = logging.getLogger(__name__)
 
@@ -91,7 +92,9 @@ class AuditoriaService:
             "created_at": datetime.utcnow()
         }
         
-        await self.db.auditorias.insert_one(auditoria)
+        insert_result = self.db.auditorias.insert_one(auditoria)
+        if inspect.isawaitable(insert_result):
+            await insert_result
         
         logger.info(
             f"Auditoria concluída: ID={auditoria_id}, "
@@ -110,15 +113,19 @@ class AuditoriaService:
         """
         # Verificar pendências e-CAC (mock)
         pendencia_ecac = False
-        ecac_data = await self.db.ecac_pendencias.find_one({"cnpj": cnpj})
+        ecac_data = self.db.ecac_pendencias.find_one({"cnpj": cnpj})
+        if inspect.isawaitable(ecac_data):
+            ecac_data = await ecac_data
         if ecac_data:
             pendencia_ecac = ecac_data.get("tem_pendencia", False)
         
         # Contar NF-e recebidas
-        total_nfe = await self.db.documentos.count_documents({
+        total_nfe = self.db.documentos.count_documents({
             "cnpj": cnpj,
             "tipo": "nfe"
         })
+        if inspect.isawaitable(total_nfe):
+            total_nfe = await total_nfe
         
         return {
             "pendencia_ecac": pendencia_ecac,
@@ -148,16 +155,22 @@ class AuditoriaService:
             {"_id": 0}
         ).sort("created_at", -1).limit(limit)
         
-        return await cursor.to_list(length=limit)
+        result = cursor.to_list(length=limit)
+        if inspect.isawaitable(result):
+            result = await result
+        return result
     
     async def obter_auditoria(self, auditoria_id: str) -> Optional[Dict[str, Any]]:
         """
         Obtém detalhes de uma auditoria
         """
-        return await self.db.auditorias.find_one(
+        result = self.db.auditorias.find_one(
             {"id": auditoria_id},
             {"_id": 0}
         )
+        if inspect.isawaitable(result):
+            result = await result
+        return result
     
     async def obter_estatisticas_conformidade(
         self,
@@ -188,7 +201,10 @@ class AuditoriaService:
             }
         ]
         
-        resultado = await self.db.auditorias.aggregate(pipeline).to_list(1)
+        aggregate_result = self.db.auditorias.aggregate(pipeline)
+        resultado = aggregate_result.to_list(1)
+        if inspect.isawaitable(resultado):
+            resultado = await resultado
         
         if resultado:
             return {
