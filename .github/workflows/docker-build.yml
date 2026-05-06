@@ -22,6 +22,9 @@ permissions:
   contents: read
   packages: write
 
+env:
+  IMAGE_NAMESPACE: ghcr.io/sltconsultauditoria-web/sltweb
+
 jobs:
   docker:
     runs-on: ubuntu-latest
@@ -39,10 +42,10 @@ jobs:
           context: .
           file: backend/Dockerfile
           push: ${{ github.event_name == 'workflow_dispatch' && inputs.push == 'true' }}
-          tags: ghcr.io/${{ github.repository }}/consultslt-backend:${{ github.sha }}
+          tags: ${{ env.IMAGE_NAMESPACE }}/consultslt-backend:${{ github.sha }}
       - uses: docker/build-push-action@v6
         with:
           context: .
           file: frontend/Dockerfile
           push: ${{ github.event_name == 'workflow_dispatch' && inputs.push == 'true' }}
-          tags: ghcr.io/${{ github.repository }}/consultslt-frontend:${{ github.sha }}
+          tags: ${{ env.IMAGE_NAMESPACE }}/consultslt-frontend:${{ github.sha }}
