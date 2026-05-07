@@ -1,5 +1,4 @@
 import { useEffect, useState } from 'react';
-import { Link } from 'react-router-dom';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -22,6 +21,7 @@ import {
 import { useAuth } from '@/context/AuthContext';
 import { isAdminUser } from '@/lib/rbac';
 import api from '@/services/api';
+import ConfiguracoesUsuariosViewer from '@/pages/ConfiguracoesUsuariosViewer';
 
 const channelOptions = [
   { key: 'email', label: 'Email', icon: Mail },
@@ -329,21 +329,7 @@ const Configuracoes = () => {
 
         {isAdmin && (
           <TabsContent value="usuarios-viewer">
-            <Card>
-              <CardHeader>
-                <CardTitle>Gestao de Usuarios Viewer</CardTitle>
-                <CardDescription>Crie, edite e remova contas com acesso somente de visualizacao</CardDescription>
-              </CardHeader>
-              <CardContent className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
-                <div>
-                  <p className="font-medium">Administracao restrita</p>
-                  <p className="text-sm text-gray-500">A tela dedicada usa RBAC no frontend e endpoints Bearer protegidos no backend.</p>
-                </div>
-                <Button asChild className="bg-blue-900 hover:bg-blue-800">
-                  <Link to="/configuracoes/usuarios-viewer">Abrir Gestao de Viewers</Link>
-                </Button>
-              </CardContent>
-            </Card>
+            <ConfiguracoesUsuariosViewer />
           </TabsContent>
         )}
 

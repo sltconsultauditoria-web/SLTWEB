@@ -38,7 +38,6 @@ export const navigationGroups = [
     items: [
       { icon: UserCog, label: "Usuários", path: "/usuarios", adminOnly: true },
       { icon: Settings, label: "Configurações", path: "/configuracoes" },
-      { icon: UserCog, label: "Viewers", path: "/configuracoes/usuarios-viewer", adminOnly: true },
     ],
   },
 ];
@@ -53,7 +52,6 @@ export const routeTitles = [
   { path: "/alertas", title: "Alertas", description: "Ocorrências e vencimentos" },
   { path: "/relatorios", title: "Relatórios", description: "Exportação e análise operacional" },
   { path: "/configuracoes", title: "Configurações", description: "Parâmetros do sistema" },
-  { path: "/configuracoes/usuarios-viewer", title: "Gestão de Viewers", description: "Administração de acesso restrito" },
   { path: "/config-alertas", title: "Alertas", description: "Regras e notificações" },
   { path: "/robos", title: "Robôs", description: "Automação e integrações" },
   { path: "/fiscal", title: "Fiscal", description: "Painel tributário consolidado" },

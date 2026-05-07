@@ -13,7 +13,6 @@ import Guias from "@/pages/Guias";
 import Alertas from "@/pages/Alertas";
 import Relatorios from "@/pages/Relatorios";
 import Configuracoes from "@/pages/Configuracoes";
-import ConfiguracoesUsuariosViewer from "@/pages/ConfiguracoesUsuariosViewer";
 import ConfiguracaoAlertas from "@/pages/ConfiguracaoAlertas";
 import Robos from "@/pages/Robos";
 import Fiscal from "@/pages/Fiscal";
@@ -47,14 +46,6 @@ function App() {
             <Route path="/alertas" element={<Alertas />} />
             <Route path="/relatorios" element={<Relatorios />} />
             <Route path="/configuracoes" element={<Configuracoes />} />
-            <Route
-              path="/configuracoes/usuarios-viewer"
-              element={(
-                <AdminRoute>
-                  <ConfiguracoesUsuariosViewer />
-                </AdminRoute>
-              )}
-            />
             <Route path="/config-alertas" element={<ConfiguracaoAlertas />} />
             <Route path="/robos" element={<Robos />} />
             <Route path="/fiscal" element={<Fiscal />} />

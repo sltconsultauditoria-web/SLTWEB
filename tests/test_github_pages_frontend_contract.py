@@ -115,18 +115,20 @@ def test_notifications_websocket_uses_configured_render_url_only():
 
 def test_admin_viewer_management_frontend_contract():
     app_js = read_text(FRONTEND / "src" / "App.js")
-    sidebar = read_text(FRONTEND / "src" / "components" / "Layout" / "Sidebar.jsx")
+    navigation = read_text(FRONTEND / "src" / "components" / "Layout" / "navigation.js")
     configuracoes = read_text(FRONTEND / "src" / "pages" / "Configuracoes.jsx")
     page = read_text(FRONTEND / "src" / "pages" / "ConfiguracoesUsuariosViewer.jsx")
     usuarios = read_text(FRONTEND / "src" / "pages" / "Usuarios.jsx")
 
-    assert "ConfiguracoesUsuariosViewer" in app_js
-    assert 'path="/configuracoes/usuarios-viewer"' in app_js
+    assert "ConfiguracoesUsuariosViewer" not in app_js
+    assert 'path="/configuracoes/usuarios-viewer"' not in app_js
     assert "<AdminRoute>" in app_js
-    assert "'/configuracoes/usuarios-viewer'" in sidebar
-    assert "adminOnly: true" in sidebar
+    assert 'label: "Viewers"' not in navigation
+    assert '{ icon: UserCog, label: "Viewers", path: "/configuracoes/usuarios-viewer", adminOnly: true }' not in navigation
+    assert '{ path: "/configuracoes/usuarios-viewer", title: "Gest' not in navigation
     assert "isAdminUser(user)" in configuracoes
-    assert "Abrir Gestao de Viewers" in configuracoes
+    assert "ConfiguracoesUsuariosViewer" in configuracoes
+    assert "Abrir Gestao de Viewers" not in configuracoes
     assert "api.get('/usuarios/viewers')" in page
     assert "api.post('/usuarios/viewers'" in page
     assert "api.put(`/usuarios/viewers/${selectedViewer.id}`" in page
