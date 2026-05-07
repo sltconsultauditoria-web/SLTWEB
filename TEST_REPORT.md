@@ -4,7 +4,7 @@ Generated: 2026-05-06
 
 ## Status
 
-- Local pytest: `141 passed, 3 skipped`
+- Local pytest: `144 passed, 3 skipped`
 - Frontend build: OK (`npm.cmd run build` executed in `frontend`)
 - Full script: OK with `powershell -ExecutionPolicy Bypass -File scripts/run_full_tests.ps1`
 - Render smoke: `/health` OK; `/openapi.json` still missing critical routes
@@ -66,6 +66,8 @@ Message returned by the smoke test:
 
 - Added `/api/health_check/` alias in `backend/main_enterprise.py`.
 - Added `/api/relatorios/export/{format}` contract route for frontend calls to `/relatorios/export/${format}` while preserving the existing `/pdf` and `/excel` routes.
+- Hardened `backend/routers/usuarios.py` so `/viewers` routes are declared before `/{item_id}`, preventing future route shadowing if the legacy router is included again.
+- Added tests that assert viewer route registration order, trailing-slash behavior, and legacy router static-route order.
 - Updated `render.yaml` CORS_ORIGINS to include `http://localhost:3000` alongside GitHub Pages.
 - Updated PowerShell scripts to propagate failing exit codes.
 - Added `RENDER_OPERATIONAL_AUDIT.md`.

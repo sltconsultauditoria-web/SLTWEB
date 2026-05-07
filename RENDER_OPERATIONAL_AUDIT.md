@@ -12,8 +12,8 @@ Date: 2026-05-06
 
 ## Local Commit And Workspace
 
-- Current local HEAD: `fb23783c fix: restore audit and document download endpoints`
-- Working tree: contains uncommitted changes for the new pytest suite, reports, scripts, `render.yaml` CORS update, `/api/health_check/`, and `/api/relatorios/export/{format}`.
+- Current local HEAD at audit start: `910edd62 Ajuste nas rotas de auditoria para incluir o ID do usuário e o tipo de operação, além de adicionar testes para verificar a funcionalidade dessas rotas. Também foram adicionados scripts para facilitar a execução dos testes e um relatório de teste detalhado.`
+- Working tree: contains uncommitted final hardening changes for `backend/routers/usuarios.py`, viewer route-order tests, reports, and prior deploy support changes.
 - Operational implication: Render can only deploy committed code present on `main`. The uncommitted changes in this workspace will not appear in production until committed and pushed.
 
 ## Render Configuration From Repository
@@ -54,7 +54,7 @@ Command:
 
 Result:
 
-- Pytest: `141 passed, 3 skipped`
+- Pytest: `144 passed, 3 skipped`
 - React build: OK
 
 Additional targeted validation after CORS config update:
@@ -64,6 +64,14 @@ Additional targeted validation after CORS config update:
 Result:
 
 - `6 passed`
+
+Additional targeted validation after viewer anti-shadowing hardening:
+
+`python -m pytest tests/test_viewers_endpoints.py tests/test_openapi_contract.py -q`
+
+Result:
+
+- `10 passed`
 
 ## Public Render Smoke
 
@@ -138,9 +146,28 @@ Inspect the next clear-cache deploy logs for:
 
 - Local OpenAPI contains all critical routes.
 - Production OpenAPI misses six critical routes.
+- Local `GET /api/usuarios/viewers` returns 401 without token, 403 with viewer token, and 200 with admin token.
+- Production `GET /api/usuarios/viewers` still returns 405, which matches an old deployment where the path exists but the GET method is not registered.
 - Local smoke passes except optional Render checks.
 - Production smoke fails OpenAPI contract.
 - Local CORS now includes GitHub Pages and localhost in `render.yaml`; production currently shows GitHub Pages only until redeploy.
+
+## Final 405 Diagnosis
+
+The current FastAPI runtime registers these user routes in the correct order:
+
+- `/api/usuarios GET`
+- `/api/usuarios POST`
+- `/api/usuarios/viewers GET`
+- `/api/usuarios/viewers POST`
+- `/api/usuarios/viewers/{item_id} PUT`
+- `/api/usuarios/viewers/{item_id} DELETE`
+- `/api/usuarios/{item_id} PUT`
+- `/api/usuarios/{item_id} DELETE`
+
+The legacy router `backend/routers/usuarios.py` previously had the risky shape where `/{item_id}` appeared before any `/viewers` route. It has now been hardened by declaring `/viewers` and `/viewers/{item_id}` before `/{item_id}`.
+
+Because production OpenAPI still omits `/api/usuarios/viewers` and public production returns 405 while local tests pass, the remaining production 405 is operational: Render is serving old code or a deployment that does not include the current route table.
 
 ## Required Next Steps
 
@@ -152,4 +179,3 @@ Inspect the next clear-cache deploy logs for:
    - `powershell -ExecutionPolicy Bypass -File scripts/run_render_smoke.ps1`
 5. Re-check `https://sltweb.onrender.com/openapi.json` for all critical routes.
 6. Validate frontend authenticated flows in a browser session.
-

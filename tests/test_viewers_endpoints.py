@@ -1,4 +1,5 @@
 from bson import ObjectId
+from pathlib import Path
 
 import backend.main_enterprise as app_module
 
@@ -14,6 +15,38 @@ def test_get_viewers_auth_matrix(client, admin_headers, viewer_headers):
         response = client.get("/api/usuarios/viewers", headers=headers, follow_redirects=False)
         assert response.status_code == expected, response.text
         assert response.status_code != 405
+
+
+def test_viewers_route_is_registered_before_dynamic_usuario_routes():
+    usuario_routes = [
+        route
+        for route in app_module.app.routes
+        if getattr(route, "path", "").startswith("/api/usuarios")
+    ]
+    route_map = {
+        (route.path, tuple(sorted(route.methods or []))): index
+        for index, route in enumerate(usuario_routes)
+    }
+
+    assert ("/api/usuarios/viewers", ("GET",)) in route_map
+    assert ("/api/usuarios/viewers", ("POST",)) in route_map
+    assert ("/api/usuarios/viewers/{item_id}", ("PUT",)) in route_map
+    assert ("/api/usuarios/viewers/{item_id}", ("DELETE",)) in route_map
+    assert route_map[("/api/usuarios/viewers", ("GET",))] < route_map[("/api/usuarios/{item_id}", ("PUT",))]
+    assert route_map[("/api/usuarios/viewers", ("GET",))] < route_map[("/api/usuarios/{item_id}", ("DELETE",))]
+
+
+def test_viewers_trailing_slash_never_returns_405(client, admin_headers):
+    response = client.get("/api/usuarios/viewers/", headers=admin_headers, follow_redirects=False)
+    assert response.status_code in {200, 307, 308}, response.text
+    assert response.status_code != 405
+
+
+def test_legacy_usuarios_router_declares_viewers_before_dynamic_item_route():
+    source = Path("backend/routers/usuarios.py").read_text(encoding="utf-8")
+    viewers_index = source.index('@router.get("/viewers")')
+    dynamic_index = source.index('@router.get("/{item_id}")')
+    assert viewers_index < dynamic_index, "A rota /viewers deve vir antes de /{item_id} para evitar shadowing."
 
 
 def test_create_viewer_auth_matrix(client, admin_headers, viewer_headers):
@@ -101,4 +134,3 @@ def test_viewer_endpoint_refuses_non_viewer_items_without_405(client, app_db, ad
     )
     assert response.status_code == 409
     assert response.status_code != 405
-
